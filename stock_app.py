@@ -162,12 +162,12 @@ if analyze_button and ticker_symbol_input:
             except Exception as e:
                 st.error(f"獲取股票數據時發生嚴重錯誤: {e}")
                 st.session_state.stock_data_loaded = False
-                st.session_state.current_ticker = ticker_symbol_input
+                st.session_state.current_ticker = ticker_symbol_input                   
 
 if st.session_state.stock_data_loaded and \
-   hasattr(st.session_state, 'info') and st.session_state.info and \
-   hasattr(st.session_state, 'hist_data_max') and \
-   st.session_state.hist_data_max is not None and not st.session_state.hist_data_max.empty:
+    hasattr(st.session_state, 'info') and st.session_state.info and \
+    hasattr(st.session_state, 'hist_data_max') and \
+    st.session_state.hist_data_max is not None and not st.session_state.hist_data_max.empty:
 
     info = st.session_state.info
     financials = st.session_state.financials
@@ -206,7 +206,7 @@ if st.session_state.stock_data_loaded and \
         else: 
             start_date_aware = hist_data_max.index.min()
             if start_date_aware.tzinfo is None :
-                 start_date_aware = df_timezone.localize(start_date_aware) if hasattr(df_timezone, 'localize') else start_date_aware.replace(tzinfo=df_timezone)
+                start_date_aware = df_timezone.localize(start_date_aware) if hasattr(df_timezone, 'localize') else start_date_aware.replace(tzinfo=df_timezone)
 
         start_date_aware = start_date_aware.astimezone(df_timezone)
         end_date_aware = end_date_aware.astimezone(df_timezone)
@@ -241,7 +241,7 @@ if st.session_state.stock_data_loaded and \
             fig_overview_price = px.line(data_for_period, y="Close", title=f"{current_ticker} 收盤價 ({selected_period})")
             st.plotly_chart(fig_overview_price, use_container_width=True)
         elif not hist_data_max.empty :
-             st.info(f"在選定的時間區間 ({selected_period}) 內缺少股價數據 (總覽圖)。")
+            st.info(f"在選定的時間區間 ({selected_period}) 內缺少股價數據 (總覽圖)。")
         else:
             st.info("無歷史股價數據可供展示 (總覽圖)。")
     
@@ -251,9 +251,9 @@ if st.session_state.stock_data_loaded and \
 
         if hist_data_processed.empty:
             if not hist_data_max.empty:
-                 st.warning(f"在選定時間區間 ({selected_period}) 內沒有 {current_ticker} 的股價數據。圖表無法繪製。")
+                st.warning(f"在選定時間區間 ({selected_period}) 內沒有 {current_ticker} 的股價數據。圖表無法繪製。")
             else:
-                 st.warning(f"沒有 {current_ticker} 的原始歷史股價數據。圖表無法繪製。")
+                st.warning(f"沒有 {current_ticker} 的原始歷史股價數據。圖表無法繪製。")
         else:
             if 'Close' in hist_data_processed.columns and not hist_data_processed['Close'].isnull().all():
                 st.sidebar.subheader("移動平均線 (MA)")
@@ -299,14 +299,14 @@ if st.session_state.stock_data_loaded and \
             fig_kline = go.Figure()
             ohlc_cols = ['Open', 'High', 'Low', 'Close']
             can_draw_candlestick = all(col in hist_data_processed.columns for col in ohlc_cols) and \
-                                   not hist_data_processed[ohlc_cols].isnull().all().all()
+                                not hist_data_processed[ohlc_cols].isnull().all().all()
 
             if can_draw_candlestick:
                 fig_kline.add_trace(go.Candlestick(x=hist_data_processed.index,
-                                                   open=hist_data_processed['Open'],
-                                                   high=hist_data_processed['High'],
-                                                   low=hist_data_processed['Low'],
-                                                   close=hist_data_processed['Close'], name="K線"))
+                                                open=hist_data_processed['Open'],
+                                                high=hist_data_processed['High'],
+                                                low=hist_data_processed['Low'],
+                                                close=hist_data_processed['Close'], name="K線"))
             elif 'Close' in hist_data_processed.columns and not hist_data_processed['Close'].isnull().all():
                 fig_kline.add_trace(go.Scatter(x=hist_data_processed.index, y=hist_data_processed['Close'], mode='lines', name='收盤價 (線圖)'))
                 st.caption("K線圖OHLC數據不完整，已改用收盤價線圖。")
@@ -320,7 +320,7 @@ if st.session_state.stock_data_loaded and \
             
             bb_plot_cols = ['BB_high', 'BB_low', 'BB_mid']
             can_draw_bb = all(col in hist_data_processed.columns for col in bb_plot_cols) and \
-                          not hist_data_processed[bb_plot_cols].isnull().all().all()
+                        not hist_data_processed[bb_plot_cols].isnull().all().all()
             if show_bb and can_draw_bb:
                 fig_kline.add_trace(go.Scatter(x=hist_data_processed.index, y=hist_data_processed['BB_high'], mode='lines', name='布林帶上軌', line=dict(color='rgba(173,216,230,0.5)')))
                 fig_kline.add_trace(go.Scatter(x=hist_data_processed.index, y=hist_data_processed['BB_low'], mode='lines', name='布林帶下軌', line=dict(color='rgba(173,216,230,0.5)'), fill='tonexty', fillcolor='rgba(173,216,230,0.2)'))
