@@ -115,7 +115,7 @@ selected_period = st.sidebar.selectbox("選擇時間區間:", DEFAULT_PERIODS, i
 analyze_button = st.sidebar.button("立即分析", key="btn_analyze")
 
 # --- 主內容區 ---
-st.title(f"【Fin AIgent】股票投資決策整合平台 ({ticker_symbol_input or ''})")
+st.title(f"【Fin AIgent】股票投資決策整合平台")
 
 # 初始化 session_state 中的聊天相關變數
 if "initial_ai_analysis_done" not in st.session_state:
