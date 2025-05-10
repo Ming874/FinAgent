@@ -3,7 +3,7 @@
 ![PLATFORM](platform_demo.png)
 **Fin AIgent** 是一個基於 Python 和 Streamlit 開發的互動式網頁應用程式，旨在為使用者提供全面、即時的股票市場分析與 AI 驅動的投資洞察。本平台整合了多種數據源和分析工具，協助使用者做出更明智的投資決策。
 
-**[➡️ 點此體驗 Fin AIgent (請替換為您的 Streamlit App 實際網址)](https://tmchen-finagent.streamlit.app/)**
+**[➡️ 點此體驗 Fin AIgent](https://tmchen-finagent.streamlit.app/)**
 
 ---
 
@@ -51,7 +51,7 @@
 
 7.  **其他輔助函式庫:**
     *   **datetime, timedelta (`datetime`)**: 用於日期和時間相關運算。
-    *   **os (`os`)**: 基礎作業系統互動 (在此專案中可能間接用於環境變數管理，若有)。
+    *   **os (`os`)**: 基礎作業系統互動 (在此專案中間接用於環境變數管理)。
 
 ---
 
