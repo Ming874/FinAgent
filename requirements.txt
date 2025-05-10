@@ -1,4 +1,5 @@
 streamlit
+streamlit-firebase-auth
 yfinance
 pandas
 plotly

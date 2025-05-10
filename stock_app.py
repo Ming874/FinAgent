@@ -87,8 +87,8 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
         
         if "news_results" in results:
             return results["news_results"], None
-        elif "organic_results" in results:
-             return results["organic_results"], None # Should not happen with tbm=nws
+        elif "organic_results" in results: 
+             return results["organic_results"], None
         else:
             return None, f"SERP API 未返回預期的 'news_results'。收到: {list(results.keys())}"
             
@@ -98,8 +98,8 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
 # --- 側邊欄 ---
 st.sidebar.title("📈 Fin Agent 股票分析")
 ticker_symbol_input = st.sidebar.text_input("輸入股票代碼 (例如：NVDA)", "NVDA").upper()
-google_api_key_input = st.sidebar.text_input("輸入 Google AI API 金鑰", type="password", key="google_api_key")
-serp_api_key_input = st.sidebar.text_input("輸入 SERP API 金鑰 (可選)", type="password", key="serp_api_key")
+google_api_key_input = st.sidebar.text_input("輸入 Google AI API 金鑰 (解鎖進階LLM評估功能)", type="password", key="google_api_key")
+serp_api_key_input = st.sidebar.text_input("輸入 SERP API 金鑰 (解鎖進階新聞搜尋功能)", type="password", key="serp_api_key")
 
 DEFAULT_PERIODS = ["1個月", "3個月", "6個月", "今年以來(YTD)", "1年", "2年", "5年", "全部"]
 st.sidebar.subheader("股價圖表設定")
@@ -150,7 +150,6 @@ if analyze_button and ticker_symbol_input:
 
                     if serp_api_key_input and info.get('longName'):
                         company_name_for_search = info.get('longName', ticker_symbol_input)
-                        # 修改搜尋查詢以包含財經相關關鍵字
                         search_query = f'"{company_name_for_search}" OR "{ticker_symbol_input}" 財經 OR 金融 OR 股票 OR 市場分析 新聞'
                         st.session_state.serpapi_results, st.session_state.serpapi_error = get_serpapi_news(search_query, serp_api_key_input, num_results=5)
                     elif not serp_api_key_input:
@@ -178,7 +177,7 @@ if st.session_state.stock_data_loaded and \
     major_holders = st.session_state.major_holders
     institutional_holders = st.session_state.institutional_holders
     recommendations = st.session_state.recommendations
-    news_yf = st.session_state.news_yf
+    news_yf = st.session_state.news_yf 
     current_ticker = st.session_state.current_ticker
     serpapi_results = st.session_state.serpapi_results
     serpapi_error = st.session_state.serpapi_error
@@ -188,7 +187,7 @@ if st.session_state.stock_data_loaded and \
     st.write(f"行業: {info.get('industry', 'N/A')} | 產業: {info.get('sector', 'N/A')}")
     st.markdown("---")
 
-    tab_titles = ["📊 總覽", "📈 股價分析", " F 財務數據", "🏢 公司資訊", "🤖 AI 智能分析"]
+    tab_titles = ["總覽", "股價分析", "財務數據", "公司資訊", "AI 智能分析"]
     tab_overview, tab_price_analysis, tab_financials, tab_company_profile, tab_ai_analysis = st.tabs(tab_titles)
 
     data_for_period = pd.DataFrame()
@@ -217,6 +216,7 @@ if st.session_state.stock_data_loaded and \
         ].copy()
     else:
         st.warning("歷史數據缺乏有效的時區信息，可能導致圖表篩選不準確。")
+        data_for_period = hist_data_max.copy() 
 
     with tab_overview:
         st.subheader("關鍵指標與股價摘要")
@@ -382,7 +382,7 @@ if st.session_state.stock_data_loaded and \
                     fig_balance = px.line(balance_sheet_plot, x='日期', y=plot_cols_balance, title="資產、負債與股東權益趨勢", labels={'value': '金額', 'variable': '指標'})
                     st.plotly_chart(fig_balance, use_container_width=True)
                 elif not balance_sheet.empty: st.caption("資產負債表數據不足以繪圖。")
-            else: st.warning(f"無法獲取 {current_ticker} 的資產負債表數據。")
+            else: st.warning(f"無法獲取 {current_ticker} の資產負債表數據。")
 
         with st.expander("現金流量表 (Cash Flow Statement) - 年度"):
             if not cashflow.empty:
@@ -475,60 +475,98 @@ if st.session_state.stock_data_loaded and \
         else: st.info("無分析師建議數據。")
         st.markdown("---")
         
-        # --- YFinance 新聞顯示優化 ---
         st.subheader(f"相關新聞 (來自 yfinance - {current_ticker})")
         if news_yf and isinstance(news_yf, list) and len(news_yf) > 0:
-            news_items_to_display = []
-            for item in news_yf:
-                if isinstance(item, dict):
-                    title = item.get('title')
-                    link = item.get('link')
-                    publisher = item.get('publisher', '來源不明')
+            news_items_to_display_yf = [] # Renamed to avoid conflict
+            for item_outer in news_yf: 
+                if isinstance(item_outer, dict) and 'content' in item_outer and isinstance(item_outer['content'], dict):
+                    item_content = item_outer['content'] 
 
-                    if title and title.strip() and title.lower() != 'n/a' and \
-                       link and link.strip() and link != '#':
-                        news_items_to_display.append({
+                    news_link_url = None
+                    if 'clickThroughUrl' in item_content and isinstance(item_content['clickThroughUrl'], dict) and \
+                       'url' in item_content['clickThroughUrl'] and item_content['clickThroughUrl']['url']:
+                        news_link_url = str(item_content['clickThroughUrl']['url']).strip()
+                    elif 'canonicalUrl' in item_content and isinstance(item_content['canonicalUrl'], dict) and \
+                         'url' in item_content['canonicalUrl'] and item_content['canonicalUrl']['url']:
+                        news_link_url = str(item_content['canonicalUrl']['url']).strip()
+                    
+                    if news_link_url and news_link_url != '#': 
+                        title = item_content.get('title', '(無標題)') 
+                        if not title or not str(title).strip(): 
+                            title = '(無標題)'
+                        else:
+                            title = str(title).strip()
+
+                        publisher_name = '來源不明'
+                        if 'provider' in item_content and isinstance(item_content['provider'], dict) and \
+                           'displayName' in item_content['provider'] and item_content['provider']['displayName']:
+                            publisher_name = item_content['provider']['displayName']
+                        
+                        publish_time_raw = item_content.get('pubDate')
+
+                        news_items_to_display_yf.append({ # Use renamed list
                             'title': title,
-                            'link': link,
-                            'publisher': publisher,
-                            'providerPublishTime': item.get('providerPublishTime')
+                            'link': news_link_url,
+                            'publisher': publisher_name,
+                            'providerPublishTime': publish_time_raw 
                         })
             
-            if news_items_to_display:
-                for news_item in news_items_to_display[:5]: # 最多顯示5條有效新聞
+            if news_items_to_display_yf: # Use renamed list
+                for news_item in news_items_to_display_yf[:5]: 
                     st.markdown(f"**<a href='{news_item['link']}' target='_blank'>{news_item['title']}</a>** - *{news_item['publisher']}*", unsafe_allow_html=True)
-                    ts = news_item.get('providerPublishTime')
-                    if ts and isinstance(ts, (int, float)):
+                    ts_str = news_item.get('providerPublishTime')
+                    if ts_str and isinstance(ts_str, str):
                         try:
-                            dt_object = datetime.fromtimestamp(ts, tz=pytz.UTC)
-                            st.caption(f"發布: {dt_object.strftime('%Y-%m-%d %H:%M %Z')}")
-                        except Exception:
-                            st.caption("發布時間格式錯誤")
+                            dt_object = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                            st.caption(f"發布: {dt_object.astimezone(pytz.utc).strftime('%Y-%m-%d %H:%M %Z')}")
+                        except ValueError:
+                            if isinstance(ts_str, (int, float)): 
+                                try:
+                                    dt_object = datetime.fromtimestamp(ts_str, tz=pytz.UTC)
+                                    st.caption(f"發布: {dt_object.strftime('%Y-%m-%d %H:%M %Z')}")
+                                except Exception:
+                                    st.caption(f"發布時間格式錯誤: {ts_str}")
+                            else:
+                                st.caption(f"發布時間格式錯誤: {ts_str}")
+                        except Exception: 
+                             st.caption(f"發布時間處理出錯: {ts_str}")
+                    elif ts_str : 
+                        if isinstance(ts_str, (int, float)):
+                            try:
+                                dt_object = datetime.fromtimestamp(ts_str, tz=pytz.UTC)
+                                st.caption(f"發布: {dt_object.strftime('%Y-%m-%d %H:%M %Z')}")
+                            except Exception:
+                                st.caption("發布時間格式錯誤")
                     st.markdown("---")
             else:
-                st.info(f"yfinance 未能提供 {current_ticker} 的有效新聞標題或連結。")
+                st.info(f"yfinance 為 {current_ticker} 提供的所有新聞項目中，均未找到包含有效連結的內容，或內容結構不符合預期。")
         else:
-            st.info(f"yfinance 未找到 {current_ticker} 的相關新聞數據。")
+            st.info(f"yfinance 未找到 {current_ticker} 的相關新聞數據 (來源未提供任何新聞條目)。")
         
         st.markdown("---")
-        # --- SERP API 新聞標題修改 ---
         st.subheader(f"外部財經新聞搜尋 (SERP API - {info.get('longName', current_ticker)})")
+        
+        if serpapi_results:
+            with st.expander("顯示/隱藏 SERP API 原始返回數據 (調試用)", expanded=False):
+                st.json(serpapi_results[:3]) 
+
         if serpapi_error:
             st.caption(serpapi_error)
         if serpapi_results:
-            for item in serpapi_results:
+            for item in serpapi_results[:5]: 
                 title = item.get('title', '無標題')
                 link = item.get('link', '#')
-                source = item.get('source', '未知來源')
-                snippet = item.get('snippet', '')
+                # **修正點：從 item['source']['name'] 提取新聞來源**
+                source_dict = item.get('source', {}) # 獲取 source 字典，如果不存在則為空字典
+                source_name = source_dict.get('name', '未知來源') # 從 source 字典中獲取 name
+
                 date_str = item.get('date', '')
 
-                st.markdown(f"**<a href='{link}' target='_blank'>{title}</a>** - *{source}*", unsafe_allow_html=True)
-                if date_str:
-                    st.caption(f"發布日期: {date_str}")
-                if snippet:
-                    st.caption(f"摘要: {snippet}")
-                st.markdown("---")
+                if link and link != '#': 
+                    st.markdown(f"**<a href='{link}' target='_blank'>{title}</a>** - *{source_name}*", unsafe_allow_html=True)
+                    if date_str:
+                        st.caption(f"發布: {date_str}") 
+                    st.markdown("---")
         elif serp_api_key_input and not serpapi_error:
             st.info("SERP API 未找到相關財經新聞。")
 
@@ -563,7 +601,7 @@ if st.session_state.stock_data_loaded and \
                     if yf_capex_col1 in latest_cf_ai: cap_ex_ai_val = latest_cf_ai.get(yf_capex_col1)
                     elif yf_capex_col2 in latest_cf_ai: cap_ex_ai_val = latest_cf_ai.get(yf_capex_col2)
                     if pd.notna(op_c_ai_val) and pd.notna(cap_ex_ai_val):
-                        fcf_for_ai = op_c_ai_val + cap_ex_ai_val # Note: FCF is OpCash - CapEx. CapEx is usually negative from yf, so + is correct.
+                        fcf_for_ai = op_c_ai_val + cap_ex_ai_val
                 prompt_parts.append(f"- 自由現金流: {fcf_for_ai}")
 
             prompt_parts.append("\n近期關鍵財務比率:")
@@ -574,20 +612,66 @@ if st.session_state.stock_data_loaded and \
                 disp = f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (float,int)) and is_pct else (val if pd.notna(val) else 'N/A')
                 prompt_parts.append(f"- {name}: {disp}")
 
+            if news_yf and isinstance(news_yf, list) and len(news_yf) > 0:
+                prompt_parts.append("\n\n近期相關內部財經新聞摘要 (來自 yfinance):")
+                yf_news_count_for_ai = 0
+                for item_outer_ai in news_yf:
+                    if yf_news_count_for_ai >= 3: 
+                        break
+                    if isinstance(item_outer_ai, dict) and 'content' in item_outer_ai and isinstance(item_outer_ai['content'], dict):
+                        item_content_ai = item_outer_ai['content']
+                        news_link_url_for_check_ai = None
+                        if 'clickThroughUrl' in item_content_ai and isinstance(item_content_ai['clickThroughUrl'], dict) and \
+                           'url' in item_content_ai['clickThroughUrl'] and item_content_ai['clickThroughUrl']['url']:
+                            news_link_url_for_check_ai = str(item_content_ai['clickThroughUrl']['url']).strip()
+                        elif 'canonicalUrl' in item_content_ai and isinstance(item_content_ai['canonicalUrl'], dict) and \
+                             'url' in item_content_ai['canonicalUrl'] and item_content_ai['canonicalUrl']['url']:
+                            news_link_url_for_check_ai = str(item_content_ai['canonicalUrl']['url']).strip()
+
+                        if news_link_url_for_check_ai and news_link_url_for_check_ai != '#':
+                            title_ai = item_content_ai.get('title')
+                            publisher_name_ai = item_content_ai.get('provider', {}).get('displayName', '來源不明')
+                            pub_date_str_ai = item_content_ai.get('pubDate') 
+                            display_title_for_ai = "(無標題)"
+                            if title_ai and isinstance(title_ai, str) and title_ai.strip():
+                                display_title_for_ai = title_ai.strip()
+                            ai_news_line = f"{yf_news_count_for_ai + 1}. 標題: {display_title_for_ai} (來源: {publisher_name_ai})"
+                            if pub_date_str_ai and isinstance(pub_date_str_ai, str):
+                                try:
+                                    dt_object_ai = datetime.fromisoformat(pub_date_str_ai.replace('Z', '+00:00'))
+                                    ai_news_line += f" (發布時間: {dt_object_ai.strftime('%Y-%m-%d %H:%M UTC')})"
+                                except: 
+                                    pass 
+                            prompt_parts.append(ai_news_line)
+                            yf_news_count_for_ai += 1
+            
             if serpapi_results:
                 prompt_parts.append("\n\n近期相關外部財經新聞摘要 (來自 SERP API):")
                 for i, item in enumerate(serpapi_results[:3]):
-                    title = item.get('title', 'N/A')
-                    snippet = item.get('snippet', 'N/A')
-                    source = item.get('source', 'N/A')
-                    prompt_parts.append(f"{i+1}. 標題: {title} (來源: {source})\n   摘要: {snippet}")
-            elif serpapi_error and "未提供 SERP API 金鑰" not in serpapi_error : # Only show search error if key was provided
-                 prompt_parts.append(f"\n\n外部財經新聞搜尋提示: {serpapi_error}")
+                    title_for_ai = item.get('title', 'N/A')
+                    # **修正點：從 item['source']['name'] 提取 SERP API 新聞來源給 AI**
+                    source_dict_for_ai = item.get('source', {})
+                    source_name_for_ai = source_dict_for_ai.get('name', 'N/A')
+                    date_str_for_ai = item.get('date', '')
+                    
+                    ai_news_line = f"{i+1}. 標題: {title_for_ai} (來源: {source_name_for_ai})"
+                    if date_str_for_ai:
+                        ai_news_line += f" (發布日期: {date_str_for_ai})"
+                    prompt_parts.append(ai_news_line)
+
+            elif serpapi_error and "未提供 SERP API 金鑰" not in serpapi_error : 
+                prompt_parts.append(f"\n\n外部財經新聞搜尋提示: {serpapi_error}")
             
-            prompt_instruction = ("\n\n任務指示:\n1. 基於以上提供的公司基本資料、最新的年度財務摘要、關鍵比率以及近期相關外部財經新聞摘要（如果有的話），用繁體中文分析這家公司的基本面情況。\n2. 分析應包括公司的主要優勢、潛在風險和挑戰，並結合外部新聞資訊（如果提供）。\n3. 提供一個簡短的總結性評價和未來展望（如果可能）。\n4. 分析應客觀且基於數據，段落分明，易於理解。避免提供直接的投資建議（買入/賣出）。")
+            prompt_instruction = (
+                "\n\n任務指示:\n"
+                "1. 基於以上提供的公司基本資料、最新的年度財務摘要、關鍵比率、以及來自 yfinance 和 SERP API 的近期相關財經新聞摘要（如果有的話），用繁體中文分析這家公司的基本面情況。\n"
+                "2. 分析應包括公司的主要優勢、潛在風險和挑戰，並結合所有提供的新聞資訊進行綜合評估。\n"
+                "3. 提供一個完整的總結性評價和未來展望。\n"
+                "4. 分析應客觀且基於數據，段落分明，易於理解。避免提供直接的投資建議（買入/賣出）。"
+            )
             full_prompt = "\n".join(str(p) for p in prompt_parts) + prompt_instruction
             # st.text_area("Debug: AI Prompt", full_prompt, height=300)
-            with st.spinner("🧠 Gemini AI 正在深度分析中，請稍候..."):
+            with st.spinner("🧠 Gemini 正在深度分析中，請稍候..."):
                 st.markdown(get_ai_analysis_from_gemini(full_prompt, google_api_key_input))
 
 elif analyze_button and not ticker_symbol_input:
