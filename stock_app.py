@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import pytz
 import os
 
-# --- 配置 ---
+# --- 介面配置 ---
 st.set_page_config(layout="wide", page_title="Fin AI Agent")
 
 # --- 輔助函數 ---
@@ -57,7 +57,7 @@ def get_stock_data_enhanced(ticker_symbol):
 
     return info, financials, balance_sheet, cashflow, hist_data_max, dividends, major_holders, institutional_holders, recommendations, news_yf
 
-# 修改後的 Gemini API 調用函數，支持多輪對話歷史
+# Gemini API 調用函數，支持多輪對話記憶
 def get_ai_chat_response_from_gemini(api_key, user_query, chat_history_for_api, initial_context=""):
     if not api_key:
         return "錯誤：未提供 Google AI API 金鑰。"
@@ -95,7 +95,7 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
         if "news_results" in results:
             return results["news_results"], None
         elif "organic_results" in results:
-             return results["organic_results"], None
+            return results["organic_results"], None
         else:
             return None, f"SERP API 未返回預期的 'news_results'。收到: {list(results.keys())}"
             
@@ -103,19 +103,19 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
         return None, f"SERP API 搜尋出錯: {e}"
 
 # --- 側邊欄 ---
-st.sidebar.title("📈 Fin Agent 股票分析")
-ticker_symbol_input = st.sidebar.text_input("輸入股票代碼 (例如：NVDA)", "NVDA").upper()
-google_api_key_input = st.sidebar.text_input("輸入 Google AI API 金鑰 (解鎖進階LLM評估功能)", type="password", key="google_api_key")
-serp_api_key_input = st.sidebar.text_input("輸入 SERP API 金鑰 (解鎖進階新聞搜尋功能)", type="password", key="serp_api_key")
+st.sidebar.title("📈 Fin AIgent 股票分析")
+ticker_symbol_input = st.sidebar.text_input("輸入股票代碼 (例如：2330.TW)", "2330.TW").upper()
+google_api_key_input = st.sidebar.text_input("輸入 Google Gemini API Key (解鎖進階 LLM 評估功能)", type="password", key="google_api_key")
+serp_api_key_input = st.sidebar.text_input("輸入 Serp API Key (解鎖進階新聞搜尋功能)", type="password", key="serp_api_key")
 
 DEFAULT_PERIODS = ["1個月", "3個月", "6個月", "今年以來(YTD)", "1年", "2年", "5年", "全部"]
 st.sidebar.subheader("股價圖表設定")
 selected_period = st.sidebar.selectbox("選擇時間區間:", DEFAULT_PERIODS, index=5, key="sb_period_select")
 
-analyze_button = st.sidebar.button("🚀 分析股票", key="btn_analyze")
+analyze_button = st.sidebar.button("立即分析", key="btn_analyze")
 
 # --- 主內容區 ---
-st.title(f"【Fin Agent】AI 驅動進階股票分析 ({ticker_symbol_input or ''})")
+st.title(f"【Fin AIgent】股票投資決策整合平台 ({ticker_symbol_input or ''})")
 
 # 初始化 session_state 中的聊天相關變數
 if "initial_ai_analysis_done" not in st.session_state:
@@ -155,7 +155,7 @@ if analyze_button and ticker_symbol_input:
         with st.spinner(f"⏳ 正在獲取 {ticker_symbol_input} 的全方位數據..."):
             try:
                 (info, financials, balance_sheet, cashflow, hist_data_max, dividends,
-                 major_holders, institutional_holders, recommendations, news_yf) = get_stock_data_enhanced(ticker_symbol_input)
+                major_holders, institutional_holders, recommendations, news_yf) = get_stock_data_enhanced(ticker_symbol_input)
 
                 st.session_state.info = info
                 st.session_state.financials = financials
@@ -177,7 +177,7 @@ if analyze_button and ticker_symbol_input:
                         search_query = f'"{company_name_for_search}" OR "{ticker_symbol_input}" 財經 OR 金融 OR 股票 OR 市場分析 新聞'
                         st.session_state.serpapi_results, st.session_state.serpapi_error = get_serpapi_news(search_query, serp_api_key_input, num_results=5)
                     elif not serp_api_key_input:
-                        st.session_state.serpapi_error = "未提供 SERP API 金鑰，跳過外部新聞搜尋。"
+                        st.session_state.serpapi_error = "未提供 Serp API Key，跳過外部新聞搜尋。"
                 else:
                     st.session_state.stock_data_loaded = False
                     st.error(f"未能成功獲取 {ticker_symbol_input} 的歷史股價數據。請檢查股票代碼或稍後再試。")
@@ -580,8 +580,8 @@ if st.session_state.stock_data_loaded and \
                 if len(actual_cols_present_rec) == len(expected_summary_cols_original_case) and not recommendations.empty:
                     latest_row_rec = None
                     if 'period' in recommendations.columns and '0m' in recommendations['period'].values:
-                         latest_row_df_rec = recommendations[recommendations['period'] == '0m']
-                         if not latest_row_df_rec.empty:
+                        latest_row_df_rec = recommendations[recommendations['period'] == '0m']
+                        if not latest_row_df_rec.empty:
                             latest_row_rec = latest_row_df_rec.iloc[-1] 
                     
                     if latest_row_rec is None and not recommendations.empty: 
@@ -596,7 +596,7 @@ if st.session_state.stock_data_loaded and \
                         if latest_recoms_data_rec:
                             latest_recoms_series_rec = pd.Series(latest_recoms_data_rec)
                             fig_recom_bar = px.bar(latest_recoms_series_rec, x=latest_recoms_series_rec.index, y=latest_recoms_series_rec.values, 
-                                                   title="最新分析師建議數量", labels={'index':'建議', 'y':'數量'})
+                                                title="最新分析師建議數量", labels={'index':'建議', 'y':'數量'})
                             st.plotly_chart(fig_recom_bar, use_container_width=True)
                         else:
                             st.info("最新分析師建議評級數量均為0或無效。")
@@ -616,10 +616,10 @@ if st.session_state.stock_data_loaded and \
                     item_content_news = item_outer_news['content'] 
                     news_link_url_yf = None
                     if 'clickThroughUrl' in item_content_news and isinstance(item_content_news['clickThroughUrl'], dict) and \
-                       'url' in item_content_news['clickThroughUrl'] and item_content_news['clickThroughUrl']['url']:
+                        'url' in item_content_news['clickThroughUrl'] and item_content_news['clickThroughUrl']['url']:
                         news_link_url_yf = str(item_content_news['clickThroughUrl']['url']).strip()
                     elif 'canonicalUrl' in item_content_news and isinstance(item_content_news['canonicalUrl'], dict) and \
-                         'url' in item_content_news['canonicalUrl'] and item_content_news['canonicalUrl']['url']:
+                        'url' in item_content_news['canonicalUrl'] and item_content_news['canonicalUrl']['url']:
                         news_link_url_yf = str(item_content_news['canonicalUrl']['url']).strip()
                     
                     if news_link_url_yf and news_link_url_yf != '#': 
@@ -630,7 +630,7 @@ if st.session_state.stock_data_loaded and \
                             title_news = str(title_news).strip()
                         publisher_name_news = '來源不明'
                         if 'provider' in item_content_news and isinstance(item_content_news['provider'], dict) and \
-                           'displayName' in item_content_news['provider'] and item_content_news['provider']['displayName']:
+                            'displayName' in item_content_news['provider'] and item_content_news['provider']['displayName']:
                             publisher_name_news = item_content_news['provider']['displayName']
                         publish_time_raw_news = item_content_news.get('pubDate')
                         news_items_to_display_yf.append({ 
@@ -651,7 +651,7 @@ if st.session_state.stock_data_loaded and \
                         except ValueError: 
                             st.caption(f"發布時間: {ts_str_news}") 
                         except Exception: 
-                             st.caption(f"發布時間處理出錯")
+                            st.caption(f"發布時間處理出錯")
                     elif ts_str_news and isinstance(ts_str_news, (int, float)): 
                         try:
                             dt_object_news_ts = datetime.fromtimestamp(ts_str_news, tz=pytz.UTC)
@@ -687,13 +687,13 @@ if st.session_state.stock_data_loaded and \
 
 
     with tab_ai_chat:
-        st.subheader(f"🤖 與 Gemini AI 針對 {company_name} 的進階對話")
+        st.subheader(f"與 Gemini 針對 {company_name} 進行進階對話")
 
         if not google_api_key_input:
-            st.warning("請在左側邊欄輸入 Google AI API 金鑰以啟用 AI 分析與對話功能。")
+            st.warning("請在左側邊欄輸入 Gemini API Key 以啟用 AI 分析與對話功能。")
         else:
             if not st.session_state.initial_ai_analysis_done:
-                with st.spinner("🧠 Gemini 正在生成初始分析，請稍候..."):
+                with st.spinner("Gemini 正在生成初始分析，請稍候..."):
                     prompt_parts = [
                         f"你是一位專業的金融分析師。請針對以下公司 {company_name} ({current_ticker}) 進行基本面分析。\n",
                         f"公司概況:\n- 產業: {info.get('sector', 'N/A')}\n- 行業: {info.get('industry', 'N/A')}\n- 市值: {info.get('marketCap', 'N/A')}\n- Beta: {info.get('beta', 'N/A')}\n",
@@ -794,13 +794,13 @@ if st.session_state.stock_data_loaded and \
                 if not st.session_state.initial_ai_analysis_done:
                     st.warning("請等待初始分析完成後再提問。")
                 elif not google_api_key_input: 
-                    st.error("請先提供 Google AI API 金鑰。")
+                    st.error("請先提供 Gemini API Key!")
                 else:
                     st.session_state.chat_messages.append({"role": "user", "content": prompt_chat_input})
                     with st.chat_message("user"):
                         st.markdown(prompt_chat_input)
 
-                    with st.spinner("🤖 AI 正在思考中..."):
+                    with st.spinner("Gemini 正在思考中..."):
                         ai_response_text_chat, updated_gemini_history_chat = get_ai_chat_response_from_gemini(
                             google_api_key_input,
                             prompt_chat_input, 
@@ -814,8 +814,17 @@ if st.session_state.stock_data_loaded and \
 
 
 elif analyze_button and not ticker_symbol_input:
-    st.sidebar.error("🚨 請輸入股票代碼。")
+    st.sidebar.error("請輸入股票代碼!")
 elif st.session_state.get('stock_data_loaded') is False and st.session_state.get('current_ticker'): 
     st.error(f"加載 {st.session_state.current_ticker} 的數據失敗。請檢查股票代碼或網絡，然後重試。")
 else: 
-    st.info("👋 歡迎使用 Fin Agent 進階股票分析工具！請在左側輸入股票代碼、您的 Google AI API 金鑰以及 SERP API 金鑰（可選），然後點擊 '分析股票' 按鈕開始。")
+    st.info("""👋 歡迎使用 Fin AIgent 股票投資決策整合平台！
+
+請於左側欄位輸入：
+*   **股票代碼** (例如：2330.TW)
+*   **Gemini API Key** (Google LLM - 用於啟用 AI 驅動的分析與互動式對話功能)
+*   **Serp API Key** (用於整合外部即時新聞資訊)
+
+完成輸入後，請點擊「立即分析」，即可開始您的智能化投資決策之旅。
+
+This platform is maintained by Tai-Ming Chen.""")
