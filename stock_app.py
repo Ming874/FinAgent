@@ -13,7 +13,7 @@ import pytz
 import os
 
 # --- 介面配置 ---
-st.set_page_config(layout="wide", page_title="Fin AI Agent")
+st.set_page_config(layout="wide", page_title="Fin AIgent")
 
 # --- 輔助函數 ---
 @st.cache_data
