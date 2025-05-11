@@ -775,7 +775,7 @@ if st.session_state.stock_data_loaded and \
                     full_initial_prompt = "\n".join(str(p_part) for p_part in prompt_parts) + prompt_instruction
                     
                     genai.configure(api_key=google_api_key_input)
-                    model_for_initial = genai.GenerativeModel('gemini-2.0-flash-latest')
+                    model_for_initial = genai.GenerativeModel('gemini-2.0-flash-001')
                     initial_response = model_for_initial.generate_content(full_initial_prompt)
                     initial_analysis_text = initial_response.text if initial_response.parts else "AI 分析無法生成初始內容。"
                     
