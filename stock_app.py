@@ -3,7 +3,8 @@ import yfinance as yf
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import google.generativeai as genai
+import google.generativeai as genai # 使用 google-genai SDK (通常以此方式導入)
+from google.generativeai.types import HarmCategory, HarmBlockThreshold # Safety settings - 這些通常仍在 types 下
 from serpapi import GoogleSearch
 from ta.volatility import BollingerBands
 from ta.trend import MACD, SMAIndicator, EMAIndicator
@@ -34,7 +35,13 @@ def get_stock_data_enhanced(ticker_symbol):
 
         if hist_data_max.index.tz is None:
             try:
-                tz_name = info.get('exchangeTimezoneName', 'America/New_York')
+                # Sanitize timezone name
+                tz_name_raw = info.get('exchangeTimezoneName', 'America/New_York')
+                if tz_name_raw:
+                    tz_name = tz_name_raw.split(' ')[0] # Take the first part if it's like "New_York EST"
+                else:
+                    tz_name = 'America/New_York'
+
                 hist_data_max.index = hist_data_max.index.tz_localize(tz_name, nonexistent='shift_forward', ambiguous='infer')
             except pytz.exceptions.UnknownTimeZoneError:
                 st.warning(f"未知交易所時區: {info.get('exchangeTimezoneName')}。嘗試 'America/New_York'。")
@@ -57,24 +64,216 @@ def get_stock_data_enhanced(ticker_symbol):
 
     return info, financials, balance_sheet, cashflow, hist_data_max, dividends, major_holders, institutional_holders, recommendations, news_yf
 
+<<<<<<< HEAD
+@st.cache_data
+def get_serpapi_news(query, serp_api_key, num_results=5):
+    if not serp_api_key:
+        return None, "錯誤：未提供 SERP API 金鑰。"
+    try:
+        params = {
+            "q": query,
+            "engine": "google_news", # 使用新聞引擎
+            "api_key": serp_api_key,
+            "num": num_results,
+            "tbm": "nws", # 指定新聞搜尋
+            "hl": "zh-tw",
+            "gl": "tw"
+        }
+        search = GoogleSearch(params)
+        results = search.get_dict()
+
+        if "news_results" in results:
+            return results["news_results"], None
+        elif "organic_results" in results: # 有些情況下新聞結果可能在 organic_results
+            return results["organic_results"], None
+        else:
+            return None, f"SERP API (新聞) 未返回預期的 'news_results' 或 'organic_results'。收到: {list(results.keys())}"
+
+    except Exception as e:
+        return None, f"SERP API 新聞搜尋出錯: {e}"
+
+@st.cache_data
+def get_serpapi_web_search(query, serp_api_key, num_results=3):
+    if not serp_api_key:
+        return None, "錯誤：未提供 SERP API 金鑰以進行通用網頁搜尋。"
+    try:
+        params = {
+            "q": query,
+            "engine": "google", # 通用搜尋引擎
+            "api_key": serp_api_key,
+            "num": num_results,
+            "hl": "zh-tw",
+            "gl": "tw"
+        }
+        search = GoogleSearch(params)
+        results = search.get_dict()
+
+        if "organic_results" in results:
+            search_data = []
+            for result in results["organic_results"][:num_results]:
+                search_data.append({
+                    "title": result.get("title"),
+                    "link": result.get("link"),
+                    "snippet": result.get("snippet", result.get("about_this_result", {}).get("source", {}).get("description")) # 嘗試備用摘要
+                })
+            return search_data, None
+        else:
+            return None, f"SERP API (通用搜尋) 未返回預期的 'organic_results'。收到: {list(results.keys())}"
+    except Exception as e:
+        return None, f"SERP API 通用搜尋出錯: {e}"
+
+# Gemini API 調用函數，支持多輪對話記憶和工具調用
+def get_ai_chat_response_from_gemini(api_key, user_query, chat_history_for_api, serp_api_key_for_tools):
+=======
 # Gemini API 調用函數，支持多輪對話記憶
 def get_ai_chat_response_from_gemini(api_key, user_query, chat_history_for_api, initial_context=""):
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
     if not api_key:
         return "錯誤：未提供 Google AI API 金鑰。"
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
+<<<<<<< HEAD
+        # Use genai.protos for FunctionDeclaration, Schema, Type, Tool
+        web_search_tool_declaration = genai.protos.FunctionDeclaration(
+            name="perform_web_search",
+            description="當需要獲取當前股價資訊以外的、最新的、或初始上下文中未包含的特定資訊時，執行通用網頁搜尋。例如，查詢最近發生的事件、公司最新公告、特定定義、或非財務相關的公司動態。僅在絕對必要時使用。",
+            parameters=genai.protos.Schema(
+                type=genai.protos.Type.OBJECT,
+                properties={
+                    "search_query": genai.protos.Schema(type=genai.protos.Type.STRING, description="用於網頁搜尋的查詢關鍵字。應具體且清晰。") # MODIFIED
+                },
+                required=["search_query"]
+            )
+        )
+
+        tools_list = [genai.protos.Tool(function_declarations=[web_search_tool_declaration])] if serp_api_key_for_tools else None # MODIFIED
+
+        safety_settings_config = None
+        try:
+            safety_settings_config = {
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            }
+        except NameError:
+            st.warning("無法設定詳細的安全設定，將使用預設安全等級。可能是 google-generativeai 版本較舊，或 HarmCategory/HarmBlockThreshold 未正確導入。")
+
+
+        model_args = {'model_name': 'gemini-2.0-flash', 'tools': tools_list}
+        if safety_settings_config:
+            model_args['safety_settings'] = safety_settings_config
+
+        model = genai.GenerativeModel(**model_args)
+
+=======
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
         current_chat_session = model.start_chat(history=chat_history_for_api)
+<<<<<<< HEAD
+        response = current_chat_session.send_message(user_query)
+
+        while response.candidates and response.candidates[0].content.parts and \
+            hasattr(response.candidates[0].content.parts[0], 'function_call') and \
+            response.candidates[0].content.parts[0].function_call and \
+            response.candidates[0].content.parts[0].function_call.name:
+
+            function_call = response.candidates[0].content.parts[0].function_call
+
+            if function_call.name == "perform_web_search":
+                query = function_call.args["search_query"]
+                st.info(f"AI 正在進行網頁搜尋: \"{query}\"")
+
+                tool_response_content = ""
+                api_function_response_obj = None
+
+                if not serp_api_key_for_tools:
+                    tool_response_content = "無法執行網頁搜尋，因為 Serp API Key 未提供或未啟用此功能。"
+                    st.warning(tool_response_content)
+                    # Use genai.protos for FunctionResponse
+                    api_function_response_obj = genai.protos.FunctionResponse(
+                        name="perform_web_search",
+                        response={"result": tool_response_content, "error": "API key missing"}
+                    )
+                else:
+                    search_results, search_error = get_serpapi_web_search(query, serp_api_key_for_tools)
+                    if search_error:
+                        tool_response_content = f"網頁搜尋失敗: {search_error}"
+                        st.error(tool_response_content)
+                    elif search_results:
+                        tool_response_content = "網頁搜尋結果:\n"
+                        for i, res in enumerate(search_results):
+                            tool_response_content += f"{i+1}. 標題: {res.get('title', 'N/A')}\n   摘要: {res.get('snippet', 'N/A')[:200]}...\n   連結: {res.get('link', '#')}\n"
+                        st.info(f"網頁搜尋到 {len(search_results)} 項結果。")
+                    else:
+                        tool_response_content = "網頁搜尋未找到相關結果。"
+                        st.info(tool_response_content)
+
+                    # MODIFIED: Use genai.protos for FunctionResponse
+                    api_function_response_obj = genai.protos.FunctionResponse(
+                        name="perform_web_search",
+                        response={"result": tool_response_content}
+                    )
+
+                # MODIFIED: Use genai.protos.Part to wrap FunctionResponse
+                response = current_chat_session.send_message(
+                    [genai.protos.Part(function_response=api_function_response_obj)] # MODIFIED
+                )
+            else:
+                st.warning(f"AI 請求了未知的工具: {function_call.name}")
+                break
+=======
         response = current_chat_session.send_message(user_query)
         
         updated_history = current_chat_session.history
         
         return response.text if response.parts else "AI 分析無法生成內容。", updated_history
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
 
+<<<<<<< HEAD
+        updated_history = current_chat_session.history
+
+        final_text_response = ""
+        candidate = response.candidates[0] if response.candidates else None
+=======
     except Exception as e:
         return f"Gemini AI 分析出錯: {e}", chat_history_for_api # 出錯時返回原始歷史
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
 
+<<<<<<< HEAD
+        if candidate and candidate.content and candidate.content.parts:
+            for part_item in candidate.content.parts:
+                if hasattr(part_item, 'text') and part_item.text:
+                    final_text_response += part_item.text
+
+        if not final_text_response :
+            # FinishReason and BlockedReason are usually in genai.types
+            if candidate and candidate.finish_reason != genai.types.Candidate.FinishReason.STOP:
+                try:
+                    reason_name = genai.types.Candidate.FinishReason(candidate.finish_reason).name
+                    final_text_response = f"AI 回應因 '{reason_name}' 而結束。"
+                    if candidate.finish_reason == genai.types.Candidate.FinishReason.SAFETY:
+                        safety_messages = []
+                        if hasattr(candidate, 'safety_ratings'):
+                            for rating in candidate.safety_ratings: # HarmCategory should be correctly imported
+                                if rating.blocked:
+                                    safety_messages.append(f"{rating.category.name} ({rating.probability.name})")
+                        if safety_messages:
+                            final_text_response += " 可能原因: 安全設定 (" + ", ".join(safety_messages) + ")."
+                    elif hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
+                        block_reason_name = genai.types.BlockReason(response.prompt_feedback.block_reason).name # Corrected typo: BlockedReason to BlockReason
+                        final_text_response += f" 具體阻擋原因: {block_reason_name}."
+                except Exception as e_finish_reason:
+                    final_text_response = f"AI 回應已結束，但無法解析具體原因: {e_finish_reason}"
+
+
+            if not final_text_response:
+                final_text_response = "AI 分析無法生成文本內容，或回應為空。"
+
+        return final_text_response, updated_history
+
+=======
 @st.cache_data
 def get_serpapi_news(query, serp_api_key, num_results=5):
     if not serp_api_key:
@@ -99,14 +298,23 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
         else:
             return None, f"SERP API 未返回預期的 'news_results'。收到: {list(results.keys())}"
             
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
     except Exception as e:
-        return None, f"SERP API 搜尋出錯: {e}"
+        st.error(f"Gemini AI 分析 (含工具調用) 出錯: {e}")
+        st.error(f"錯誤類型: {type(e).__name__}")
+        st.error(f"詳細錯誤: {traceback.format_exc()}") # 印出完整 traceback
+        return f"Gemini AI 分析 (含工具調用) 出錯: {e}", chat_history_for_api
+
 
 # --- 側邊欄 ---
 st.sidebar.title("📈 Fin AIgent 股票分析")
 ticker_symbol_input = st.sidebar.text_input("輸入股票代碼 (例如：2330.TW)", "2330.TW").upper()
 google_api_key_input = st.sidebar.text_input("輸入 Google Gemini API Key (解鎖進階 LLM 評估功能)", type="password", key="google_api_key")
+<<<<<<< HEAD
+serp_api_key_input = st.sidebar.text_input("輸入 Serp API Key (解鎖進階新聞搜尋與 LLM 聯網功能)", type="password", key="serp_api_key")
+=======
 serp_api_key_input = st.sidebar.text_input("輸入 Serp API Key (解鎖進階新聞搜尋功能)", type="password", key="serp_api_key")
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
 
 DEFAULT_PERIODS = ["1個月", "3個月", "6個月", "今年以來(YTD)", "1年", "2年", "5年", "全部"]
 st.sidebar.subheader("股價圖表設定")
@@ -117,16 +325,14 @@ analyze_button = st.sidebar.button("立即分析", key="btn_analyze")
 # --- 主內容區 ---
 st.title(f"【Fin AIgent】股票投資決策整合平台")
 
-# 初始化 session_state 中的聊天相關變數
 if "initial_ai_analysis_done" not in st.session_state:
     st.session_state.initial_ai_analysis_done = False
-if "chat_messages" not in st.session_state: # 用於 Streamlit UI 顯示
+if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = []
-if "gemini_chat_history" not in st.session_state: # 用於傳遞給 Gemini API
+if "gemini_chat_history" not in st.session_state:
     st.session_state.gemini_chat_history = []
 if "initial_analysis_context" not in st.session_state:
     st.session_state.initial_analysis_context = ""
-
 
 if 'stock_data_loaded' not in st.session_state:
     st.session_state.stock_data_loaded = False
@@ -137,19 +343,16 @@ if 'serpapi_results' not in st.session_state:
 if 'serpapi_error' not in st.session_state:
     st.session_state.serpapi_error = None
 
-
 if analyze_button and ticker_symbol_input:
     if st.session_state.current_ticker != ticker_symbol_input or not st.session_state.stock_data_loaded:
         st.cache_data.clear()
         st.session_state.stock_data_loaded = False
         st.session_state.serpapi_results = None
         st.session_state.serpapi_error = None
-        # 清空聊天記錄和初始分析標記
         st.session_state.initial_ai_analysis_done = False
         st.session_state.chat_messages = []
         st.session_state.gemini_chat_history = []
         st.session_state.initial_analysis_context = ""
-
 
     if not st.session_state.stock_data_loaded:
         with st.spinner(f"⏳ 正在獲取 {ticker_symbol_input} 的全方位數據..."):
@@ -168,24 +371,35 @@ if analyze_button and ticker_symbol_input:
                 st.session_state.recommendations = recommendations
                 st.session_state.news_yf = news_yf
                 st.session_state.current_ticker = ticker_symbol_input
-                
+
                 if hist_data_max is not None and not hist_data_max.empty:
                     st.session_state.stock_data_loaded = True
-
-                    if serp_api_key_input and info.get('longName'):
+                    if serp_api_key_input and info and info.get('longName'):
                         company_name_for_search = info.get('longName', ticker_symbol_input)
+<<<<<<< HEAD
+                        search_query_news = f'"{company_name_for_search}" OR "{ticker_symbol_input}" 財經 OR 金融 OR 股票 OR 市場分析 新聞'
+                        st.session_state.serpapi_results, st.session_state.serpapi_error = get_serpapi_news(search_query_news, serp_api_key_input, num_results=5)
+=======
                         search_query = f'"{company_name_for_search}" OR "{ticker_symbol_input}" 財經 OR 金融 OR 股票 OR 市場分析 新聞'
                         st.session_state.serpapi_results, st.session_state.serpapi_error = get_serpapi_news(search_query, serp_api_key_input, num_results=5)
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
                     elif not serp_api_key_input:
                         st.session_state.serpapi_error = "未提供 Serp API Key，跳過外部新聞搜尋。"
+                    elif not info:
+                        st.warning(f"無法獲取 {ticker_symbol_input} 的公司資訊 (info)，跳過 SerpAPI 新聞搜尋。")
+
                 else:
                     st.session_state.stock_data_loaded = False
                     st.error(f"未能成功獲取 {ticker_symbol_input} 的歷史股價數據。請檢查股票代碼或稍後再試。")
-                st.rerun() # Rerun to update UI with loaded data
+                st.rerun()
             except Exception as e:
                 st.error(f"獲取股票數據時發生嚴重錯誤: {e}")
                 st.session_state.stock_data_loaded = False
+<<<<<<< HEAD
+                st.session_state.current_ticker = ticker_symbol_input
+=======
                 st.session_state.current_ticker = ticker_symbol_input # Keep current ticker to show error context
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
 
 if st.session_state.stock_data_loaded and \
     hasattr(st.session_state, 'info') and st.session_state.info and \
@@ -203,8 +417,8 @@ if st.session_state.stock_data_loaded and \
     recommendations = st.session_state.recommendations
     news_yf = st.session_state.news_yf
     current_ticker = st.session_state.current_ticker
-    serpapi_results = st.session_state.serpapi_results
-    serpapi_error = st.session_state.serpapi_error
+    serpapi_results_news = st.session_state.serpapi_results
+    serpapi_error_news = st.session_state.serpapi_error
 
     company_name = info.get('longName', current_ticker)
     st.header(f"{company_name} ({current_ticker})")
@@ -213,34 +427,6 @@ if st.session_state.stock_data_loaded and \
 
     tab_titles = ["總覽", "股價分析", "財務數據", "公司資訊", "AI 智能分析與對話"]
     tab_overview, tab_price_analysis, tab_financials, tab_company_profile, tab_ai_chat = st.tabs(tab_titles)
-
-    data_for_period = pd.DataFrame()
-    if hist_data_max.index.tz:
-        df_timezone = hist_data_max.index.tz
-        end_date_aware = datetime.now(df_timezone)
-        
-        if selected_period == "1個月": start_date_aware = end_date_aware - timedelta(days=30)
-        elif selected_period == "3個月": start_date_aware = end_date_aware - timedelta(days=90)
-        elif selected_period == "6個月": start_date_aware = end_date_aware - timedelta(days=180)
-        elif selected_period == "今年以來(YTD)": start_date_aware = datetime(end_date_aware.year, 1, 1, tzinfo=df_timezone)
-        elif selected_period == "1年": start_date_aware = end_date_aware - timedelta(days=365)
-        elif selected_period == "2年": start_date_aware = end_date_aware - timedelta(days=365*2)
-        elif selected_period == "5年": start_date_aware = end_date_aware - timedelta(days=365*5)
-        else: 
-            start_date_aware = hist_data_max.index.min()
-            if start_date_aware.tzinfo is None :
-                start_date_aware = df_timezone.localize(start_date_aware) if hasattr(df_timezone, 'localize') else start_date_aware.replace(tzinfo=df_timezone)
-
-        start_date_aware = start_date_aware.astimezone(df_timezone)
-        end_date_aware = end_date_aware.astimezone(df_timezone)
-
-        data_for_period = hist_data_max[
-            (hist_data_max.index >= start_date_aware) &
-            (hist_data_max.index <= end_date_aware)
-        ].copy()
-    else:
-        st.warning("歷史數據缺乏有效的時區信息，可能導致圖表篩選不準確。")
-        data_for_period = hist_data_max.copy()
 
     with tab_overview:
         st.subheader("關鍵指標與股價摘要")
@@ -251,11 +437,11 @@ if st.session_state.stock_data_loaded and \
         previous_close_val_calc = info.get('regularMarketPreviousClose')
         yfinance_pct_raw_for_delta = info.get('regularMarketChangePercent')
 
-        delta_metric_value = None 
+        delta_metric_value = None
 
-        if isinstance(price_change_abs_val, (int, float)): 
+        if isinstance(price_change_abs_val, (int, float)):
             calculated_pct_change_for_delta = 0.0
-            
+
             if isinstance(previous_close_val_calc, (int, float)) and previous_close_val_calc != 0:
                 calculated_pct_change_for_delta = (price_change_abs_val / previous_close_val_calc) * 100.0
             elif isinstance(current_price_val_display, (int, float)) and current_price_val_display != price_change_abs_val:
@@ -263,58 +449,101 @@ if st.session_state.stock_data_loaded and \
                 if inferred_prev_close_for_delta != 0:
                     calculated_pct_change_for_delta = (price_change_abs_val / inferred_prev_close_for_delta) * 100.0
                 elif isinstance(yfinance_pct_raw_for_delta, (int, float)):
-                    if abs(yfinance_pct_raw_for_delta) < 1.0 and yfinance_pct_raw_for_delta !=0: # Check if it's a ratio (e.g., 0.05 for 5%)
+                    if abs(yfinance_pct_raw_for_delta) < 1.0 and yfinance_pct_raw_for_delta !=0:
                         calculated_pct_change_for_delta = yfinance_pct_raw_for_delta * 100.0
-                    else: # Assume it's already a percentage (e.g., 5 for 5%)
+                    else:
                         calculated_pct_change_for_delta = yfinance_pct_raw_for_delta
-                else: calculated_pct_change_for_delta = 0.0 # Fallback
+                else: calculated_pct_change_for_delta = 0.0
             elif isinstance(yfinance_pct_raw_for_delta, (int, float)):
                 if abs(yfinance_pct_raw_for_delta) < 1.0 and yfinance_pct_raw_for_delta !=0:
                     calculated_pct_change_for_delta = yfinance_pct_raw_for_delta * 100.0
                 else:
                     calculated_pct_change_for_delta = yfinance_pct_raw_for_delta
-            else: 
+            else:
                 calculated_pct_change_for_delta = 0.0
-            
+
             delta_metric_value = f"{price_change_abs_val:+.2f} ({calculated_pct_change_for_delta:.2f}%)"
 
-        elif isinstance(yfinance_pct_raw_for_delta, (int, float)): # Only percentage available
+        elif isinstance(yfinance_pct_raw_for_delta, (int, float)):
             calculated_pct_change_for_delta = 0.0
             if abs(yfinance_pct_raw_for_delta) < 1.0 and yfinance_pct_raw_for_delta !=0 :
                 calculated_pct_change_for_delta = yfinance_pct_raw_for_delta * 100.0
             else:
                 calculated_pct_change_for_delta = yfinance_pct_raw_for_delta
-            delta_metric_value = f"({calculated_pct_change_for_delta:.2f}%)" # No absolute change to show
-        
+            delta_metric_value = f"({calculated_pct_change_for_delta:.2f}%)"
+
         with col1: st.metric(label="當前價格", value=f"{current_price_val_display:.2f}" if isinstance(current_price_val_display, (int,float)) else "N/A", delta=delta_metric_value)
-        
+
         with col2: st.metric(label="市值", value=f"{info.get('marketCap', 0)/1_000_000_000_000:.2f} 兆" if isinstance(info.get('marketCap'), (int, float)) and info.get('marketCap', 0) > 0 else "N/A")
         with col3: st.metric(label="本益比 (TTM)", value=f"{info.get('trailingPE'):.2f}" if isinstance(info.get('trailingPE'), (int, float)) else "N/A")
         with col4: st.metric(label="每股盈餘 (EPS)", value=f"{info.get('trailingEps'):.2f}" if isinstance(info.get('trailingEps'), (int, float)) else "N/A")
 
         col5, col6, col7, col8 = st.columns(4)
         with col5: st.metric(label="股價淨值比", value=f"{info.get('priceToBook'):.2f}" if isinstance(info.get('priceToBook'), (int, float)) else "N/A")
-        
+
         dividend_yield_raw_val = info.get('dividendYield')
         dividend_yield_display_str = "N/A"
         if isinstance(dividend_yield_raw_val, (int, float)) and pd.notna(dividend_yield_raw_val) and dividend_yield_raw_val >= 0:
             final_yield_pct = 0.0
             if dividend_yield_raw_val == 0:
                 final_yield_pct = 0.0
-            elif dividend_yield_raw_val >= 1.0: # If yfinance returns e.g., 3.0 for 3%
+            elif dividend_yield_raw_val >= 1.0:
                 final_yield_pct = dividend_yield_raw_val
-            else: # If yfinance returns e.g., 0.03 for 3%
+            else:
                 final_yield_pct = dividend_yield_raw_val * 100.0
             dividend_yield_display_str = f"{final_yield_pct:.2f}%"
-        
+
         with col6: st.metric(label="股息殖利率", value=dividend_yield_display_str)
-        
+
         with col7: st.metric(label="Beta係數", value=f"{info.get('beta'):.2f}" if isinstance(info.get('beta'), (int, float)) else "N/A")
         with col8: st.metric(label="成交量", value=f"{info.get('regularMarketVolume', 0):,}" if isinstance(info.get('regularMarketVolume'), (int, float)) else "N/A")
 
         st.subheader(f"近期股價走勢 ({selected_period})")
-        if not data_for_period.empty and 'Close' in data_for_period.columns and not data_for_period['Close'].isnull().all():
-            fig_overview_price = px.line(data_for_period, y="Close", title=f"{current_ticker} 收盤價 ({selected_period})")
+        data_for_period_overview = pd.DataFrame()
+        if hasattr(hist_data_max.index, 'tz') and hist_data_max.index.tz: # Check if index is timezone-aware
+            df_timezone = hist_data_max.index.tz
+            end_date_aware = datetime.now(df_timezone)
+
+            if selected_period == "1個月": start_date_aware = end_date_aware - timedelta(days=30)
+            elif selected_period == "3個月": start_date_aware = end_date_aware - timedelta(days=90)
+            elif selected_period == "6個月": start_date_aware = end_date_aware - timedelta(days=180)
+            elif selected_period == "今年以來(YTD)": start_date_aware = datetime(end_date_aware.year, 1, 1, tzinfo=df_timezone)
+            elif selected_period == "1年": start_date_aware = end_date_aware - timedelta(days=365)
+            elif selected_period == "2年": start_date_aware = end_date_aware - timedelta(days=365*2)
+            elif selected_period == "5年": start_date_aware = end_date_aware - timedelta(days=365*5)
+            else:
+                start_date_aware = hist_data_max.index.min()
+                if start_date_aware.tzinfo is None : # Ensure start_date is also aware
+                    start_date_aware = df_timezone.localize(start_date_aware) if hasattr(df_timezone, 'localize') else start_date_aware.replace(tzinfo=df_timezone)
+
+            start_date_aware = start_date_aware.astimezone(df_timezone)
+            end_date_aware = end_date_aware.astimezone(df_timezone)
+
+
+            data_for_period_overview = hist_data_max[
+                (hist_data_max.index >= start_date_aware) &
+                (hist_data_max.index <= end_date_aware)
+            ].copy()
+        else:
+            st.warning("歷史數據缺乏有效的時區信息，可能導致圖表篩選不準確。使用原生日期進行篩選。")
+            end_date_naive = datetime.now().replace(tzinfo=None)
+            if selected_period == "1個月": start_date_naive = end_date_naive - timedelta(days=30)
+            elif selected_period == "3個月": start_date_naive = end_date_naive - timedelta(days=90)
+            elif selected_period == "6個月": start_date_naive = end_date_naive - timedelta(days=180)
+            elif selected_period == "今年以來(YTD)": start_date_naive = datetime(end_date_naive.year, 1, 1).replace(tzinfo=None)
+            elif selected_period == "1年": start_date_naive = end_date_naive - timedelta(days=365)
+            elif selected_period == "2年": start_date_naive = end_date_naive - timedelta(days=365*2)
+            elif selected_period == "5年": start_date_naive = end_date_naive - timedelta(days=365*5)
+            else: start_date_naive = hist_data_max.index.min().replace(tzinfo=None)
+
+            data_for_period_overview = hist_data_max[
+                (hist_data_max.index.to_series().apply(lambda x: x.replace(tzinfo=None)) >= start_date_naive) &
+                (hist_data_max.index.to_series().apply(lambda x: x.replace(tzinfo=None)) <= end_date_naive)
+            ].copy()
+
+
+        if not data_for_period_overview.empty and 'Close' in data_for_period_overview.columns and not data_for_period_overview['Close'].isnull().all():
+            fig_overview_price = px.line(data_for_period_overview, y="Close", title=f"{current_ticker} 收盤價 ({selected_period})")
             st.plotly_chart(fig_overview_price, use_container_width=True)
         elif not hist_data_max.empty :
             st.info(f"在選定的時間區間 ({selected_period}) 內缺少股價數據 (總覽圖)。")
@@ -323,7 +552,50 @@ if st.session_state.stock_data_loaded and \
 
     with tab_price_analysis:
         st.subheader(f"{current_ticker} 股價圖表與技術分析")
-        hist_data_processed = data_for_period.copy()
+
+        data_for_period_tech = pd.DataFrame()
+        if hasattr(hist_data_max.index, 'tz') and hist_data_max.index.tz: # Check if index is timezone-aware
+            df_timezone_tech = hist_data_max.index.tz
+            end_date_aware_tech = datetime.now(df_timezone_tech)
+
+            if selected_period == "1個月": start_date_aware_tech = end_date_aware_tech - timedelta(days=30)
+            elif selected_period == "3個月": start_date_aware_tech = end_date_aware_tech - timedelta(days=90)
+            elif selected_period == "6個月": start_date_aware_tech = end_date_aware_tech - timedelta(days=180)
+            elif selected_period == "今年以來(YTD)": start_date_aware_tech = datetime(end_date_aware_tech.year, 1, 1, tzinfo=df_timezone_tech)
+            elif selected_period == "1年": start_date_aware_tech = end_date_aware_tech - timedelta(days=365)
+            elif selected_period == "2年": start_date_aware_tech = end_date_aware_tech - timedelta(days=365*2)
+            elif selected_period == "5年": start_date_aware_tech = end_date_aware_tech - timedelta(days=365*5)
+            else:
+                start_date_aware_tech = hist_data_max.index.min()
+                if start_date_aware_tech.tzinfo is None :
+                    start_date_aware_tech = df_timezone_tech.localize(start_date_aware_tech) if hasattr(df_timezone_tech, 'localize') else start_date_aware_tech.replace(tzinfo=df_timezone_tech)
+
+            start_date_aware_tech = start_date_aware_tech.astimezone(df_timezone_tech)
+            end_date_aware_tech = end_date_aware_tech.astimezone(df_timezone_tech)
+
+            data_for_period_tech = hist_data_max[
+                (hist_data_max.index >= start_date_aware_tech) &
+                (hist_data_max.index <= end_date_aware_tech)
+            ].copy()
+        else:
+            # Fallback for naive datetime index
+            end_date_naive_tech = datetime.now().replace(tzinfo=None)
+            if selected_period == "1個月": start_date_naive_tech = end_date_naive_tech - timedelta(days=30)
+            elif selected_period == "3個月": start_date_naive_tech = end_date_naive_tech - timedelta(days=90)
+            elif selected_period == "6個月": start_date_naive_tech = end_date_naive_tech - timedelta(days=180)
+            elif selected_period == "今年以來(YTD)": start_date_naive_tech = datetime(end_date_naive_tech.year, 1, 1).replace(tzinfo=None)
+            elif selected_period == "1年": start_date_naive_tech = end_date_naive_tech - timedelta(days=365)
+            elif selected_period == "2年": start_date_naive_tech = end_date_naive_tech - timedelta(days=365*2)
+            elif selected_period == "5年": start_date_naive_tech = end_date_naive_tech - timedelta(days=365*5)
+            else: start_date_naive_tech = hist_data_max.index.min().replace(tzinfo=None)
+
+            data_for_period_tech = hist_data_max[
+                (hist_data_max.index.to_series().apply(lambda x: x.replace(tzinfo=None)) >= start_date_naive_tech) &
+                (hist_data_max.index.to_series().apply(lambda x: x.replace(tzinfo=None)) <= end_date_naive_tech)
+            ].copy()
+
+
+        hist_data_processed = data_for_period_tech.copy()
 
         if hist_data_processed.empty:
             if not hist_data_max.empty:
@@ -333,10 +605,10 @@ if st.session_state.stock_data_loaded and \
         else:
             if 'Close' in hist_data_processed.columns and not hist_data_processed['Close'].isnull().all():
                 st.sidebar.subheader("移動平均線 (MA)")
-                show_sma = st.sidebar.checkbox("顯示 SMA", value=True, key="cb_sma")
-                sma_period = st.sidebar.slider("SMA 週期", 5, 100, 20, key="sl_sma")
-                show_ema = st.sidebar.checkbox("顯示 EMA", value=False, key="cb_ema")
-                ema_period = st.sidebar.slider("EMA 週期", 5, 100, 50, key="sl_ema")
+                show_sma = st.sidebar.checkbox("顯示 SMA", value=True, key="cb_sma_tech")
+                sma_period = st.sidebar.slider("SMA 週期", 5, 100, 20, key="sl_sma_tech")
+                show_ema = st.sidebar.checkbox("顯示 EMA", value=False, key="cb_ema_tech")
+                ema_period = st.sidebar.slider("EMA 週期", 5, 100, 50, key="sl_ema_tech")
 
                 if show_sma and len(hist_data_processed['Close'].dropna()) >= sma_period:
                     hist_data_processed[f'SMA{sma_period}'] = SMAIndicator(close=hist_data_processed['Close'], window=sma_period, fillna=False).sma_indicator()
@@ -344,26 +616,26 @@ if st.session_state.stock_data_loaded and \
                     hist_data_processed[f'EMA{ema_period}'] = EMAIndicator(close=hist_data_processed['Close'], window=ema_period, fillna=False).ema_indicator()
 
                 st.sidebar.subheader("相對強弱指數 (RSI)")
-                show_rsi = st.sidebar.checkbox("顯示 RSI", value=True, key="cb_rsi")
-                rsi_period = st.sidebar.slider("RSI 週期", 7, 30, 14, key="sl_rsi")
+                show_rsi = st.sidebar.checkbox("顯示 RSI", value=True, key="cb_rsi_tech")
+                rsi_period = st.sidebar.slider("RSI 週期", 7, 30, 14, key="sl_rsi_tech")
                 if show_rsi and len(hist_data_processed['Close'].dropna()) >= rsi_period:
                     hist_data_processed['RSI'] = RSIIndicator(close=hist_data_processed['Close'], window=rsi_period, fillna=False).rsi()
 
                 st.sidebar.subheader("MACD")
-                show_macd = st.sidebar.checkbox("顯示 MACD", value=True, key="cb_macd")
-                macd_fast = st.sidebar.slider("MACD 快線週期", 5, 50, 12, key="sl_macd_f")
-                macd_slow = st.sidebar.slider("MACD 慢線週期", 10, 100, 26, key="sl_macd_s")
-                macd_signal = st.sidebar.slider("MACD 信號線週期", 5, 50, 9, key="sl_macd_sig")
-                if show_macd and len(hist_data_processed['Close'].dropna()) >= macd_slow: # macd_slow is usually largest window
+                show_macd = st.sidebar.checkbox("顯示 MACD", value=True, key="cb_macd_tech")
+                macd_fast = st.sidebar.slider("MACD 快線週期", 5, 50, 12, key="sl_macd_f_tech")
+                macd_slow = st.sidebar.slider("MACD 慢線週期", 10, 100, 26, key="sl_macd_s_tech")
+                macd_signal = st.sidebar.slider("MACD 信號線週期", 5, 50, 9, key="sl_macd_sig_tech")
+                if show_macd and len(hist_data_processed['Close'].dropna()) >= macd_slow:
                     macd_indicator = MACD(close=hist_data_processed['Close'], window_slow=macd_slow, window_fast=macd_fast, window_sign=macd_signal, fillna=False)
                     hist_data_processed['MACD_line'] = macd_indicator.macd()
                     hist_data_processed['MACD_signal'] = macd_indicator.macd_signal()
                     hist_data_processed['MACD_hist'] = macd_indicator.macd_diff()
 
                 st.sidebar.subheader("布林帶 (Bollinger Bands)")
-                show_bb = st.sidebar.checkbox("顯示布林帶", value=True, key="cb_bb")
-                bb_period = st.sidebar.slider("布林帶週期", 5, 50, 20, key="sl_bb_p")
-                bb_std_dev = st.sidebar.slider("布林帶標準差倍數", 1.0, 3.0, 2.0, step=0.1, key="sl_bb_std")
+                show_bb = st.sidebar.checkbox("顯示布林帶", value=True, key="cb_bb_tech")
+                bb_period = st.sidebar.slider("布林帶週期", 5, 50, 20, key="sl_bb_p_tech")
+                bb_std_dev = st.sidebar.slider("布林帶標準差倍數", 1.0, 3.0, 2.0, step=0.1, key="sl_bb_std_tech")
                 if show_bb and len(hist_data_processed['Close'].dropna()) >= bb_period:
                     bb_indicator = BollingerBands(close=hist_data_processed['Close'], window=bb_period, window_dev=bb_std_dev, fillna=False)
                     hist_data_processed['BB_high'] = bb_indicator.bollinger_hband()
@@ -393,7 +665,7 @@ if st.session_state.stock_data_loaded and \
                 fig_kline.add_trace(go.Scatter(x=hist_data_processed.index, y=hist_data_processed[f'SMA{sma_period}'], mode='lines', name=f'SMA {sma_period}', line=dict(color='orange')))
             if show_ema and f'EMA{ema_period}' in hist_data_processed and not hist_data_processed[f'EMA{ema_period}'].isnull().all():
                 fig_kline.add_trace(go.Scatter(x=hist_data_processed.index, y=hist_data_processed[f'EMA{ema_period}'], mode='lines', name=f'EMA {ema_period}', line=dict(color='purple')))
-            
+
             bb_plot_cols = ['BB_high', 'BB_low', 'BB_mid']
             can_draw_bb = all(col in hist_data_processed.columns for col in bb_plot_cols) and \
                         not hist_data_processed[bb_plot_cols].isnull().all().all()
@@ -442,7 +714,7 @@ if st.session_state.stock_data_loaded and \
                 plot_cols_income = [col for col in ['Total Revenue', 'Gross Profit', 'Net Income'] if col in financials.columns and not financials[col].isnull().all()]
                 if plot_cols_income:
                     financials_plot = financials.reset_index()
-                    financials_plot['日期'] = financials_plot['index'].astype(str).str.split('-').str[0] # More robust date extraction
+                    financials_plot['日期'] = financials_plot['index'].astype(str).str.split('-').str[0]
                     fig_income = px.line(financials_plot, x='日期', y=plot_cols_income, title="營收、毛利與淨利潤趨勢", labels={'value': '金額', 'variable': '指標'})
                     st.plotly_chart(fig_income, use_container_width=True)
                 elif not financials.empty : st.caption("損益表數據不足以繪圖。")
@@ -458,7 +730,7 @@ if st.session_state.stock_data_loaded and \
                     fig_balance = px.line(balance_sheet_plot, x='日期', y=plot_cols_balance, title="資產、負債與股東權益趨勢", labels={'value': '金額', 'variable': '指標'})
                     st.plotly_chart(fig_balance, use_container_width=True)
                 elif not balance_sheet.empty: st.caption("資產負債表數據不足以繪圖。")
-            else: st.warning(f"無法獲取 {current_ticker} の資產負債表數據。")
+            else: st.warning(f"無法獲取 {current_ticker} 的資產負債表數據。")
 
         with st.expander("現金流量表 (Cash Flow Statement) - 年度"):
             if not cashflow.empty:
@@ -467,8 +739,8 @@ if st.session_state.stock_data_loaded and \
                 yf_inv_cash_col = 'Total Cashflows From Investing Activities'
                 yf_fin_cash_col = 'Total Cash From Financing Activities'
                 yf_fcf_col = 'Free Cash Flow'
-                yf_capex_col1 = 'Capital Expenditures' # Common yfinance name
-                yf_capex_col2 = 'Capital Expenditure'  # Alternative common yfinance name
+                yf_capex_col1 = 'Capital Expenditures'
+                yf_capex_col2 = 'Capital Expenditure'
 
                 display_op_cash = '營業現金流'
                 display_inv_cash = '投資現金流'
@@ -484,14 +756,23 @@ if st.session_state.stock_data_loaded and \
                     cap_ex_val = None
                     if yf_capex_col1 in cashflow.columns and not cashflow[yf_capex_col1].isnull().all(): cap_ex_val = cashflow[yf_capex_col1]
                     elif yf_capex_col2 in cashflow.columns and not cashflow[yf_capex_col2].isnull().all(): cap_ex_val = cashflow[yf_capex_col2]
+<<<<<<< HEAD
+=======
                     
                     if cap_ex_val is not None and pd.notna(op_c) and pd.notna(cap_ex_val): # Ensure cap_ex_val is not None before calculation
                         cashflow_display[display_fcf_calc] = op_c + cap_ex_val # Note: Capex is usually negative in cashflow statements, so FCF = OpCash + Capex (if Capex is negative)
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
+
+                    if cap_ex_val is not None:
+                        op_c_aligned, cap_ex_aligned = op_c.align(cap_ex_val, copy=False)
+                        fcf_calculated = op_c_aligned + cap_ex_aligned
+                        cashflow_display[display_fcf_calc] = fcf_calculated.where(pd.notna(fcf_calculated))
+
 
                 if yf_op_cash_col in cashflow.columns: cashflow_display[display_op_cash] = cashflow[yf_op_cash_col]
                 if yf_inv_cash_col in cashflow.columns: cashflow_display[display_inv_cash] = cashflow[yf_inv_cash_col]
                 if yf_fin_cash_col in cashflow.columns: cashflow_display[display_fin_cash] = cashflow[yf_fin_cash_col]
-                
+
                 cashflow_display = cashflow_display.dropna(axis=1, how='all')
                 if not cashflow_display.empty:
                     st.dataframe(cashflow_display.head())
@@ -500,7 +781,7 @@ if st.session_state.stock_data_loaded and \
                         cf_plot_df = cashflow_display[cols_to_plot_cf].reset_index().rename(columns={'index': '日期_full'})
                         cf_plot_df['日期'] = cf_plot_df['日期_full'].astype(str).str.split('-').str[0]
                         for col_plot in cols_to_plot_cf: cf_plot_df[col_plot] = pd.to_numeric(cf_plot_df[col_plot], errors='coerce')
-                        
+
                         cf_plot_long = pd.melt(cf_plot_df, id_vars=['日期'], value_vars=cols_to_plot_cf, var_name='指標', value_name='金額').dropna(subset=['金額'])
                         if not cf_plot_long.empty:
                             fig_cf = px.bar(cf_plot_long, x='日期', y='金額', color='指標', barmode='group', title="現金流量關鍵指標")
@@ -509,7 +790,7 @@ if st.session_state.stock_data_loaded and \
                     elif not cashflow_display.empty: st.caption("現金流量數據不足以繪製圖表。")
                 else: st.info(f"{current_ticker} 的現金流量表數據不完整或缺失。")
             else: st.warning(f"無法獲取 {current_ticker} 的現金流量表數據。")
-        
+
         with st.expander("關鍵財務比率"):
             st.write("以下是一些從公司資訊中提取的即時或近期財務比率：")
             ratios_data = {
@@ -525,8 +806,7 @@ if st.session_state.stock_data_loaded and \
             for name_ratio, val_ratio in ratios_data.items():
                 disp_val_ratio = "N/A"
                 if pd.notna(val_ratio) and isinstance(val_ratio, (float, int)):
-                    # Check for terms that imply percentage display
-                    if any(k_pct in name_ratio for k_pct in ["Margins", "ROE", "ROA", "利率", "報酬率", "殖利率", "支付率"]): 
+                    if any(k_pct in name_ratio for k_pct in ["Margins", "ROE", "ROA", "利率", "報酬率", "殖利率", "支付率"]):
                         disp_val_ratio = f"{val_ratio*100:.2f}%"
                     else:
                         disp_val_ratio = f"{val_ratio:.2f}"
@@ -553,15 +833,15 @@ if st.session_state.stock_data_loaded and \
             if institutional_holders is not None and not institutional_holders.empty: st.dataframe(institutional_holders.head(10))
             else: st.info("無機構持股數據。")
         st.markdown("---")
-        
+
         st.subheader("分析師建議")
         if recommendations is not None and not recommendations.empty:
             to_grade_col_name = None
-            for col_name_rec_tab in recommendations.columns: 
+            for col_name_rec_tab in recommendations.columns:
                 if col_name_rec_tab.lower() == 'to grade':
                     to_grade_col_name = col_name_rec_tab
                     break
-            
+
             if to_grade_col_name and not recommendations[to_grade_col_name].value_counts().empty:
                 summary_rec = recommendations[to_grade_col_name].value_counts()
                 fig_recom_pie = px.pie(summary_rec, values=summary_rec.values, names=summary_rec.index, title="分析師建議分佈 (評級)")
@@ -575,27 +855,27 @@ if st.session_state.stock_data_loaded and \
                         idx_rec = recommendations_cols_lower_rec.index(expected_col_lower_case_rec)
                         actual_cols_present_rec.append(recommendations.columns[idx_rec])
                     except ValueError:
-                        pass 
-                
+                        pass
+
                 if len(actual_cols_present_rec) == len(expected_summary_cols_original_case) and not recommendations.empty:
                     latest_row_rec = None
                     if 'period' in recommendations.columns and '0m' in recommendations['period'].values:
                         latest_row_df_rec = recommendations[recommendations['period'] == '0m']
                         if not latest_row_df_rec.empty:
-                            latest_row_rec = latest_row_df_rec.iloc[-1] 
-                    
-                    if latest_row_rec is None and not recommendations.empty: 
+                            latest_row_rec = latest_row_df_rec.iloc[-1]
+
+                    if latest_row_rec is None and not recommendations.empty:
                         latest_row_rec = recommendations.iloc[-1]
 
                     if latest_row_rec is not None:
                         latest_recoms_data_rec = {}
-                        for col_name_rec_bar_tab in actual_cols_present_rec: 
+                        for col_name_rec_bar_tab in actual_cols_present_rec:
                             if col_name_rec_bar_tab in latest_row_rec and pd.notna(latest_row_rec[col_name_rec_bar_tab]) and latest_row_rec[col_name_rec_bar_tab] > 0:
                                 latest_recoms_data_rec[col_name_rec_bar_tab] = latest_row_rec[col_name_rec_bar_tab]
-                        
+
                         if latest_recoms_data_rec:
                             latest_recoms_series_rec = pd.Series(latest_recoms_data_rec)
-                            fig_recom_bar = px.bar(latest_recoms_series_rec, x=latest_recoms_series_rec.index, y=latest_recoms_series_rec.values, 
+                            fig_recom_bar = px.bar(latest_recoms_series_rec, x=latest_recoms_series_rec.index, y=latest_recoms_series_rec.values,
                                                 title="最新分析師建議數量", labels={'index':'建議', 'y':'數量'})
                             st.plotly_chart(fig_recom_bar, use_container_width=True)
                         else:
@@ -607,13 +887,13 @@ if st.session_state.stock_data_loaded and \
         else:
             st.info("無分析師建議數據。")
         st.markdown("---")
-        
+
         st.subheader(f"相關新聞 (來自 yfinance - {current_ticker})")
         if news_yf and isinstance(news_yf, list) and len(news_yf) > 0:
-            news_items_to_display_yf = [] 
-            for item_outer_news in news_yf: 
+            news_items_to_display_yf = []
+            for item_outer_news in news_yf:
                 if isinstance(item_outer_news, dict) and 'content' in item_outer_news and isinstance(item_outer_news['content'], dict):
-                    item_content_news = item_outer_news['content'] 
+                    item_content_news = item_outer_news['content']
                     news_link_url_yf = None
                     if 'clickThroughUrl' in item_content_news and isinstance(item_content_news['clickThroughUrl'], dict) and \
                         'url' in item_content_news['clickThroughUrl'] and item_content_news['clickThroughUrl']['url']:
@@ -621,10 +901,10 @@ if st.session_state.stock_data_loaded and \
                     elif 'canonicalUrl' in item_content_news and isinstance(item_content_news['canonicalUrl'], dict) and \
                         'url' in item_content_news['canonicalUrl'] and item_content_news['canonicalUrl']['url']:
                         news_link_url_yf = str(item_content_news['canonicalUrl']['url']).strip()
-                    
-                    if news_link_url_yf and news_link_url_yf != '#': 
-                        title_news = item_content_news.get('title', '(無標題)') 
-                        if not title_news or not str(title_news).strip(): 
+
+                    if news_link_url_yf and news_link_url_yf != '#':
+                        title_news = item_content_news.get('title', '(無標題)')
+                        if not title_news or not str(title_news).strip():
                             title_news = '(無標題)'
                         else:
                             title_news = str(title_news).strip()
@@ -633,58 +913,57 @@ if st.session_state.stock_data_loaded and \
                             'displayName' in item_content_news['provider'] and item_content_news['provider']['displayName']:
                             publisher_name_news = item_content_news['provider']['displayName']
                         publish_time_raw_news = item_content_news.get('pubDate')
-                        news_items_to_display_yf.append({ 
+                        news_items_to_display_yf.append({
                             'title': title_news,
                             'link': news_link_url_yf,
                             'publisher': publisher_name_news,
-                            'providerPublishTime': publish_time_raw_news 
+                            'providerPublishTime': publish_time_raw_news
                         })
-            
-            if news_items_to_display_yf: 
-                for news_item_yf_disp in news_items_to_display_yf[:5]: 
+
+            if news_items_to_display_yf:
+                for news_item_yf_disp in news_items_to_display_yf[:5]:
                     st.markdown(f"**<a href='{news_item_yf_disp['link']}' target='_blank'>{news_item_yf_disp['title']}</a>** - *{news_item_yf_disp['publisher']}*", unsafe_allow_html=True)
                     ts_str_news = news_item_yf_disp.get('providerPublishTime')
                     if ts_str_news and isinstance(ts_str_news, str):
                         try:
                             dt_object_news = datetime.fromisoformat(ts_str_news.replace('Z', '+00:00'))
                             st.caption(f"發布: {dt_object_news.astimezone(pytz.utc).strftime('%Y-%m-%d %H:%M %Z')}")
-                        except ValueError: 
-                            st.caption(f"發布時間: {ts_str_news}") 
-                        except Exception: 
+                        except ValueError:
+                            st.caption(f"發布時間: {ts_str_news}")
+                        except Exception:
                             st.caption(f"發布時間處理出錯")
-                    elif ts_str_news and isinstance(ts_str_news, (int, float)): 
+                    elif ts_str_news and isinstance(ts_str_news, (int, float)):
                         try:
                             dt_object_news_ts = datetime.fromtimestamp(ts_str_news, tz=pytz.UTC)
                             st.caption(f"發布: {dt_object_news_ts.strftime('%Y-%m-%d %H:%M %Z')}")
                         except Exception:
-                            st.caption("發布時間格式錯誤")
+                            st.caption("發布時間格式錯誤 (timestamp)")
                     st.markdown("---")
             else:
                 st.info(f"yfinance 為 {current_ticker} 提供的所有新聞項目中，均未找到包含有效連結的內容，或內容結構不符合預期。")
         else:
             st.info(f"yfinance 未找到 {current_ticker} 的相關新聞數據 (來源未提供任何新聞條目)。")
-        
+
         st.markdown("---")
         st.subheader(f"外部財經新聞搜尋 (SERP API - {info.get('longName', current_ticker)})")
-        
-        if serpapi_error:
-            st.caption(serpapi_error)
-        if serpapi_results:
-            for item_serp_news in serpapi_results[:5]: 
+
+        if serpapi_error_news:
+            st.caption(serpapi_error_news)
+        if serpapi_results_news:
+            for item_serp_news in serpapi_results_news[:5]:
                 title_serp = item_serp_news.get('title', '無標題')
                 link_serp = item_serp_news.get('link', '#')
-                source_dict_serp = item_serp_news.get('source', {}) 
-                source_name_serp = source_dict_serp.get('name', '未知來源') 
+                source_dict_serp = item_serp_news.get('source', {})
+                source_name_serp = source_dict_serp.get('name', '未知來源') if isinstance(source_dict_serp, dict) else '未知來源'
                 date_str_serp = item_serp_news.get('date', '')
 
-                if link_serp and link_serp != '#': 
+                if link_serp and link_serp != '#':
                     st.markdown(f"**<a href='{link_serp}' target='_blank'>{title_serp}</a>** - *{source_name_serp}*", unsafe_allow_html=True)
                     if date_str_serp:
-                        st.caption(f"發布: {date_str_serp}") 
+                        st.caption(f"發布: {date_str_serp}")
                     st.markdown("---")
-        elif serp_api_key_input and not serpapi_error: 
+        elif serp_api_key_input and not serpapi_error_news:
             st.info("SERP API 未找到相關財經新聞。")
-
 
     with tab_ai_chat:
         st.subheader(f"與 Gemini 針對 {company_name} 進行進階對話")
@@ -702,7 +981,7 @@ if st.session_state.stock_data_loaded and \
                     if not financials.empty:
                         latest_income = financials.iloc[0]
                         prompt_parts.extend(["\n最新年度損益表摘要:", f"- 總營收: {latest_income.get('Total Revenue', 'N/A')}", f"- 毛利: {latest_income.get('Gross Profit', 'N/A')}", f"- 淨利: {latest_income.get('Net Income', 'N/A')}"])
-                    
+
                     yf_op_cash_col_ai = 'Total Cash From Operating Activities'; yf_capex_col1_ai = 'Capital Expenditures'; yf_capex_col2_ai = 'Capital Expenditure'; yf_fcf_col_direct_ai = 'Free Cash Flow'
                     if not cashflow.empty:
                         latest_cf_ai_prompt = cashflow.iloc[0]
@@ -711,8 +990,9 @@ if st.session_state.stock_data_loaded and \
                         if yf_fcf_col_direct_ai in latest_cf_ai_prompt and pd.notna(latest_cf_ai_prompt[yf_fcf_col_direct_ai]): fcf_for_ai_prompt = latest_cf_ai_prompt[yf_fcf_col_direct_ai]
                         elif yf_op_cash_col_ai in latest_cf_ai_prompt:
                             op_c_ai_val_prompt = latest_cf_ai_prompt.get(yf_op_cash_col_ai)
-                            cap_ex_ai_val_prompt = latest_cf_ai_prompt.get(yf_capex_col1_ai) if yf_capex_col1_ai in latest_cf_ai_prompt and pd.notna(latest_cf_ai_prompt.get(yf_capex_col1_ai)) else latest_cf_ai_prompt.get(yf_capex_col2_ai)
-                            if pd.notna(op_c_ai_val_prompt) and pd.notna(cap_ex_ai_val_prompt): fcf_for_ai_prompt = op_c_ai_val_prompt + cap_ex_ai_val_prompt 
+                            cap_ex_ai_val_prompt = latest_cf_ai_prompt.get(yf_capex_col1_ai, latest_cf_ai_prompt.get(yf_capex_col2_ai))
+                            if pd.notna(op_c_ai_val_prompt) and pd.notna(cap_ex_ai_val_prompt):
+                                fcf_for_ai_prompt = op_c_ai_val_prompt + cap_ex_ai_val_prompt
                         prompt_parts.append(f"- 自由現金流: {fcf_for_ai_prompt}")
 
                     prompt_parts.append("\n近期關鍵財務比率:")
@@ -722,18 +1002,17 @@ if st.session_state.stock_data_loaded and \
                         disp_pct_prompt = "N/A"
                         if pd.notna(val_pct_prompt) and isinstance(val_pct_prompt, (float,int)):
                             if is_pct_flag_prompt:
-                                # Consistent heuristic for dividend yield in prompt
+                                disp_pct_val_prompt = 0.0
                                 if name_ratio_pct_prompt == "股息殖利率":
                                     if val_pct_prompt == 0: disp_pct_val_prompt = 0.0
-                                    elif val_pct_prompt >= 1.0: disp_pct_val_prompt = val_pct_prompt # Already a percent
-                                    else: disp_pct_val_prompt = val_pct_prompt * 100.0 # Is a ratio
+                                    elif abs(val_pct_prompt) >= 1.0 : disp_pct_val_prompt = val_pct_prompt
+                                    else: disp_pct_val_prompt = val_pct_prompt * 100.0
                                     disp_pct_prompt = f"{disp_pct_val_prompt:.2f}%"
-                                else: # For ROE etc., assume it's a ratio
+                                else:
                                     disp_pct_prompt = f"{val_pct_prompt*100:.2f}%"
-                            else: # Not a percentage value
+                            else:
                                 disp_pct_prompt = str(val_pct_prompt)
                         prompt_parts.append(f"- {name_ratio_pct_prompt}: {disp_pct_prompt}")
-
 
                     if news_yf and isinstance(news_yf, list) and len(news_yf) > 0:
                         prompt_parts.append("\n\n近期相關內部財經新聞摘要 (來自 yfinance):")
@@ -746,24 +1025,36 @@ if st.session_state.stock_data_loaded and \
                                 if 'clickThroughUrl' in item_content_ai_news and isinstance(item_content_ai_news['clickThroughUrl'], dict) and 'url' in item_content_ai_news['clickThroughUrl'] and item_content_ai_news['clickThroughUrl']['url']: news_link_url_for_check_ai_news = str(item_content_ai_news['clickThroughUrl']['url']).strip()
                                 elif 'canonicalUrl' in item_content_ai_news and isinstance(item_content_ai_news['canonicalUrl'], dict) and 'url' in item_content_ai_news['canonicalUrl'] and item_content_ai_news['canonicalUrl']['url']: news_link_url_for_check_ai_news = str(item_content_ai_news['canonicalUrl']['url']).strip()
                                 if news_link_url_for_check_ai_news and news_link_url_for_check_ai_news != '#':
-                                    title_ai_news = item_content_ai_news.get('title'); publisher_name_ai_news = item_content_ai_news.get('provider', {}).get('displayName', '來源不明'); pub_date_str_ai_news = item_content_ai_news.get('pubDate') 
+                                    title_ai_news = item_content_ai_news.get('title'); publisher_name_ai_news_dict = item_content_ai_news.get('provider', {}); publisher_name_ai_news = publisher_name_ai_news_dict.get('displayName', '來源不明') if isinstance(publisher_name_ai_news_dict, dict) else '來源不明' ; pub_date_str_ai_news = item_content_ai_news.get('pubDate')
                                     display_title_for_ai_news = str(title_ai_news).strip() if title_ai_news and str(title_ai_news).strip() else "(無標題)"
                                     ai_news_line_prompt = f"{yf_news_count_for_ai_prompt + 1}. 標題: {display_title_for_ai_news} (來源: {publisher_name_ai_news})"
                                     if pub_date_str_ai_news and isinstance(pub_date_str_ai_news, str):
                                         try: ai_news_line_prompt += f" (發布時間: {datetime.fromisoformat(pub_date_str_ai_news.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M UTC')})"
-                                        except: pass 
+                                        except: pass
+                                    elif pub_date_str_ai_news and isinstance(pub_date_str_ai_news, (int, float)):
+                                        try: ai_news_line_prompt += f" (發布時間: {datetime.fromtimestamp(pub_date_str_ai_news, tz=pytz.UTC).strftime('%Y-%m-%d %H:%M UTC')})"
+                                        except: pass
                                     prompt_parts.append(ai_news_line_prompt); yf_news_count_for_ai_prompt += 1
-                    
-                    if serpapi_results:
+
+                    if serpapi_results_news:
                         prompt_parts.append("\n\n近期相關外部財經新聞摘要 (來自 SERP API):")
-                        for i_serp_prompt, item_serp_prompt_news in enumerate(serpapi_results[:3]): 
-                            title_for_ai_serp_prompt = item_serp_prompt_news.get('title', 'N/A'); source_name_for_ai_serp_prompt = item_serp_prompt_news.get('source', {}).get('name', 'N/A'); date_str_for_ai_serp_prompt = item_serp_prompt_news.get('date', '')
+                        for i_serp_prompt, item_serp_prompt_news in enumerate(serpapi_results_news[:3]):
+                            title_for_ai_serp_prompt = item_serp_prompt_news.get('title', 'N/A');
+                            source_dict_ai_serp = item_serp_prompt_news.get('source', {});
+                            source_name_for_ai_serp_prompt = source_dict_ai_serp.get('name', 'N/A') if isinstance(source_dict_ai_serp, dict) else 'N/A';
+                            date_str_for_ai_serp_prompt = item_serp_prompt_news.get('date', '')
                             ai_news_line_serp_prompt = f"{i_serp_prompt+1}. 標題: {title_for_ai_serp_prompt} (來源: {source_name_for_ai_serp_prompt})"
                             if date_str_for_ai_serp_prompt: ai_news_line_serp_prompt += f" (發布日期: {date_str_for_ai_serp_prompt})"
                             prompt_parts.append(ai_news_line_serp_prompt)
+<<<<<<< HEAD
+                    elif serpapi_error_news and "未提供 SERP API 金鑰" not in serpapi_error_news :
+                        prompt_parts.append(f"\n\n外部財經新聞搜尋提示: {serpapi_error_news}")
+
+=======
                     elif serpapi_error and "未提供 SERP API 金鑰" not in serpapi_error : 
                         prompt_parts.append(f"\n\n外部財經新聞搜尋提示: {serpapi_error}")
                     
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
                     prompt_instruction = (
                         "\n\n任務指示:\n"
                         "1. 基於以上提供的公司基本資料、最新的年度財務摘要、關鍵比率、以及來自 yfinance 和 SERP API 的近期相關財經新聞摘要（如果有的話），用繁體中文分析這家公司的基本面情況。\n"
@@ -773,41 +1064,102 @@ if st.session_state.stock_data_loaded and \
                         "5. 你的回答將作為後續對話的初始上下文。"
                     )
                     full_initial_prompt = "\n".join(str(p_part) for p_part in prompt_parts) + prompt_instruction
-                    
+
                     genai.configure(api_key=google_api_key_input)
+<<<<<<< HEAD
+
+                    safety_settings_config = None
+                    try:
+                        safety_settings_config = {
+                            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                        }
+                    except NameError:
+                        st.warning("無法為初始分析設定詳細的安全設定 (HarmCategory/HarmBlockThreshold 未定義)，將使用預設安全等級。")
+
+                    model_initial_args = {'model_name': 'gemini-2.0-flash'}
+                    if safety_settings_config:
+                        model_initial_args['safety_settings'] = safety_settings_config
+
+                    model_for_initial = genai.GenerativeModel(**model_initial_args)
+                    initial_response_obj = model_for_initial.generate_content(full_initial_prompt)
+
+                    initial_analysis_text = ""
+                    if initial_response_obj.candidates and initial_response_obj.candidates[0].content and initial_response_obj.candidates[0].content.parts:
+                        for part_item_init in initial_response_obj.candidates[0].content.parts:
+                            if hasattr(part_item_init, 'text') and part_item_init.text:
+                                initial_analysis_text += part_item_init.text
+
+                    if not initial_analysis_text:
+                        initial_analysis_text = "AI 分析無法生成初始內容。"
+                        candidate_initial = initial_response_obj.candidates[0] if initial_response_obj.candidates else None
+                        # FinishReason should be from genai.types.Candidate
+                        if candidate_initial and candidate_initial.finish_reason != genai.types.Candidate.FinishReason.STOP:
+                            try:
+                                reason_name_initial = genai.types.Candidate.FinishReason(candidate_initial.finish_reason).name
+                                initial_analysis_text += f" (原因: {reason_name_initial})"
+                            except Exception:
+                                initial_analysis_text += " (無法解析結束原因)"
+
+
+=======
                     model_for_initial = genai.GenerativeModel('gemini-2.0-flash-001')
                     initial_response = model_for_initial.generate_content(full_initial_prompt)
                     initial_analysis_text = initial_response.text if initial_response.parts else "AI 分析無法生成初始內容。"
                     
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
                     st.markdown(initial_analysis_text)
                     st.session_state.initial_analysis_context = initial_analysis_text
                     st.session_state.chat_messages.append({"role": "assistant", "content": initial_analysis_text})
                     st.session_state.gemini_chat_history.append({'role': 'model', 'parts': [initial_analysis_text]})
                     st.session_state.initial_ai_analysis_done = True
+<<<<<<< HEAD
+
+            if st.session_state.initial_ai_analysis_done:
+                for message_chat in st.session_state.chat_messages:
+=======
             
             if st.session_state.initial_ai_analysis_done: 
                 for message_chat in st.session_state.chat_messages:
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
                     with st.chat_message(message_chat["role"]):
                         st.markdown(message_chat["content"])
 
+<<<<<<< HEAD
+            if prompt_chat_input := st.chat_input(f"針對 {company_name}，您想問什麼？（可聯網搜尋）", key="ai_chat_input_field"):
+=======
             if prompt_chat_input := st.chat_input("針對以上分析，您想問什麼？", key="ai_chat_input"):
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
                 if not st.session_state.initial_ai_analysis_done:
                     st.warning("請等待初始分析完成後再提問。")
-                elif not google_api_key_input: 
+                elif not google_api_key_input:
                     st.error("請先提供 Gemini API Key!")
                 else:
                     st.session_state.chat_messages.append({"role": "user", "content": prompt_chat_input})
+                    st.session_state.gemini_chat_history.append({'role': 'user', 'parts': [prompt_chat_input]})
                     with st.chat_message("user"):
                         st.markdown(prompt_chat_input)
 
+<<<<<<< HEAD
+                    with st.spinner("Gemini 正在思考中（可能進行聯網搜尋）..."):
+=======
                     with st.spinner("Gemini 正在思考中..."):
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
                         ai_response_text_chat, updated_gemini_history_chat = get_ai_chat_response_from_gemini(
                             google_api_key_input,
+<<<<<<< HEAD
+                            prompt_chat_input,
+                            st.session_state.gemini_chat_history,
+                            serp_api_key_input
+=======
                             prompt_chat_input, 
                             st.session_state.gemini_chat_history
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
                         )
-                        st.session_state.gemini_chat_history = updated_gemini_history_chat 
-                        
+                        st.session_state.gemini_chat_history = updated_gemini_history_chat
+
                         with st.chat_message("assistant"):
                             st.markdown(ai_response_text_chat)
                         st.session_state.chat_messages.append({"role": "assistant", "content": ai_response_text_chat})
@@ -815,15 +1167,19 @@ if st.session_state.stock_data_loaded and \
 
 elif analyze_button and not ticker_symbol_input:
     st.sidebar.error("請輸入股票代碼!")
-elif st.session_state.get('stock_data_loaded') is False and st.session_state.get('current_ticker'): 
+elif st.session_state.get('stock_data_loaded') is False and st.session_state.get('current_ticker'):
     st.error(f"加載 {st.session_state.current_ticker} 的數據失敗。請檢查股票代碼或網絡，然後重試。")
-else: 
+else:
     st.info("""👋 歡迎使用 Fin AIgent 股票投資決策整合平台！
 
 請於左側欄位輸入：
 *   **股票代碼** (例如：2330.TW)
 *   **Gemini API Key** (Google LLM - 用於啟用 AI 驅動的分析與互動式對話功能)
+<<<<<<< HEAD
+*   **Serp API Key** (用於整合外部即時新聞資訊，以及賦予 LLM 聯網搜尋能力)
+=======
 *   **Serp API Key** (用於整合外部即時新聞資訊)
+>>>>>>> 6c597fea4be90e191eebaaef01813974c02e01b9
 
 完成輸入後，請點擊「立即分析」，即可開始您的智能化投資決策之旅。
 
