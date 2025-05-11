@@ -10,8 +10,7 @@ from ta.trend import MACD, SMAIndicator, EMAIndicator
 from ta.momentum import RSIIndicator
 from datetime import datetime, timedelta
 import pytz
-# import os
-# import json
+import os
 
 # --- 介面配置 ---
 st.set_page_config(layout="wide", page_title="Fin AIgent")
@@ -58,128 +57,23 @@ def get_stock_data_enhanced(ticker_symbol):
 
     return info, financials, balance_sheet, cashflow, hist_data_max, dividends, major_holders, institutional_holders, recommendations, news_yf
 
-# Gemini API 調用函數，支持多輪對話記憶與聯網搜尋
-def get_ai_chat_response_from_gemini(api_key, serp_api_key, user_query, chat_history_for_api, company_context_for_search=""):
+# Gemini API 調用函數，支持多輪對話記憶
+def get_ai_chat_response_from_gemini(api_key, user_query, chat_history_for_api, initial_context=""):
     if not api_key:
-        return "錯誤：未提供 Google AI API 金鑰。", chat_history_for_api
+        return "錯誤：未提供 Google AI API 金鑰。"
     try:
         genai.configure(api_key=api_key)
-
-        tools = [
-            {
-                "function_declarations": [
-                    {
-                        "name": "perform_web_search",
-                        "description": "當你需要獲取關於特定主題、公司、事件或人物的最新資訊、新聞或詳細解釋時，使用此工具進行網路搜尋。這在你沒有足夠的內部知識來回答用戶問題時特別有用。",
-                        "parameters": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "search_query": {
-                                    "type": "STRING",
-                                    "description": "用於網路搜尋的具體查詢字串。例如：'蘋果公司最新財報'或'COVID-19對航空業的影響'。"
-                                }
-                            },
-                            "required": ["search_query"]
-                        }
-                    }
-                ]
-            }
-        ]
-
-        model = genai.GenerativeModel(
-            model_name='gemini-2.0-flash',
-            tools=tools
-        )
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
         current_chat_session = model.start_chat(history=chat_history_for_api)
+        response = current_chat_session.send_message(user_query)
         
-        # 第一次嘗試發送訊息
-        prompt_with_context = user_query
-        if company_context_for_search: # 在初始提問中加入公司上下文，輔助模型判斷是否需要針對該公司搜尋
-            prompt_with_context = f"關於 {company_context_for_search}：{user_query}"
-
-        response = current_chat_session.send_message(prompt_with_context)
-
-        # 檢查是否有函數呼叫請求
-        while response.candidates[0].content.parts and response.candidates[0].content.parts[0].function_call:
-            function_call = response.candidates[0].content.parts[0].function_call
-            
-            if function_call.name == "perform_web_search":
-                search_query_args = function_call.args
-                search_query_text = search_query_args.get("search_query", "")
-
-                if not search_query_text:
-                    # 如果模型沒有提供明確的 search_query，我們可以用用戶的原始問題或結合公司上下文
-                    search_query_text = user_query
-                    if company_context_for_search and company_context_for_search.lower() not in user_query.lower():
-                        search_query_text = f"{company_context_for_search} {user_query}"
-                    st.sidebar.info(f"LLM 未提供明確搜尋詞，自動使用: {search_query_text}")
-
-                st.sidebar.info(f"Gemini 正在搜尋: {search_query_text}")
-                
-                if not serp_api_key:
-                    search_results_text = "SERP API 金鑰未配置，無法執行網路搜尋。"
-                    st.sidebar.error(search_results_text)
-                else:
-                    # 使用已有的 SERP API 函數
-                    news_results, error_msg = get_serpapi_news(search_query_text, serp_api_key, num_results=3) # 取少量結果避免過長
-                    
-                    if error_msg:
-                        search_results_text = f"網路搜尋失敗: {error_msg}"
-                        st.sidebar.error(search_results_text)
-                    elif news_results:
-                        # 格式化搜尋結果供 LLM 使用
-                        formatted_results = []
-                        for i, item in enumerate(news_results):
-                            title = item.get('title', 'N/A')
-                            link = item.get('link', '#')
-                            snippet = item.get('snippet', item.get('description', 'N/A')) # 有些API用description
-                            source = item.get('source', {}).get('name', 'N/A')
-                            date = item.get('date', 'N/A')
-                            formatted_results.append(f"{i+1}. 標題: {title}\n   來源: {source} (日期: {date})\n   摘要: {snippet}\n   連結: {link}\n")
-                        search_results_text = "\n網路搜尋結果摘要:\n" + "\n".join(formatted_results)
-                        st.sidebar.caption("已獲取搜尋結果並回傳給 LLM...")
-                    else:
-                        search_results_text = "網路搜尋未找到相關結果。"
-                        st.sidebar.warning(search_results_text)
-
-                # 將搜尋結果回傳給模型
-                response = current_chat_session.send_message(
-                    genai.types.Content(
-                        parts=[
-                            genai.types.Part(
-                                function_response=genai.types.FunctionResponse(
-                                    name="perform_web_search",
-                                    response={"search_results": search_results_text}
-                                )
-                            )
-                        ]
-                    )
-                )
-            else:
-                break
-        
-        # 獲取最終文本回應
-        final_response_text = ""
-        if response.parts:
-            for part in response.parts:
-                if hasattr(part, 'text') and part.text:
-                    final_response_text += part.text
-        elif response.candidates and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'text') and part.text:
-                    final_response_text += part.text
-        
-        if not final_response_text:
-            final_response_text = "AI 分析無法生成內容，或遇到了未處理的函數呼叫。"
-
         updated_history = current_chat_session.history
-        return final_response_text, updated_history
+        
+        return response.text if response.parts else "AI 分析無法生成內容。", updated_history
 
     except Exception as e:
-        st.sidebar.error(f"Gemini AI (含搜尋) 出錯: {e}")
-        return f"Gemini AI 分析出錯 (詳見側邊欄錯誤訊息): {str(e)[:100]}...", chat_history_for_api # 出錯時返回原始歷史
-
+        return f"Gemini AI 分析出錯: {e}", chat_history_for_api # 出錯時返回原始歷史
 
 @st.cache_data
 def get_serpapi_news(query, serp_api_key, num_results=5):
@@ -188,11 +82,10 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
     try:
         params = {
             "q": query,
-            # "engine": "google_news", # 可以考慮換成 google (通用搜尋) 如果需要更廣泛的資訊
-            "engine": "google", # 可以考慮換成 google (通用搜尋) 如果需要更廣泛的資訊
+            "engine": "google_news",
             "api_key": serp_api_key,
             "num": num_results,
-            # "tbm": "nws", # 如果用 google engine，可以移除 tbm 或設為 None
+            "tbm": "nws",
             "hl": "zh-tw",
             "gl": "tw"
         }
@@ -201,12 +94,10 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
         
         if "news_results" in results:
             return results["news_results"], None
-        elif "organic_results" in results: # 通用搜尋的結果
-             return results["organic_results"], None
-        elif "answer_box" in results: # 有時會有直接答案
-            return [results["answer_box"]], None # 包裝成列表以符合預期格式
+        elif "organic_results" in results:
+            return results["organic_results"], None
         else:
-            return None, f"SERP API 未返回預期的 'news_results' 或 'organic_results'。收到: {list(results.keys())}"
+            return None, f"SERP API 未返回預期的 'news_results'。收到: {list(results.keys())}"
             
     except Exception as e:
         return None, f"SERP API 搜尋出錯: {e}"
@@ -215,7 +106,7 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
 st.sidebar.title("📈 Fin AIgent 股票分析")
 ticker_symbol_input = st.sidebar.text_input("輸入股票代碼 (例如：2330.TW)", "2330.TW").upper()
 google_api_key_input = st.sidebar.text_input("輸入 Google Gemini API Key (解鎖進階 LLM 評估功能)", type="password", key="google_api_key")
-serp_api_key_input = st.sidebar.text_input("輸入 Serp API Key (解鎖進階新聞搜尋與LLM聯網功能)", type="password", key="serp_api_key") # 修改提示
+serp_api_key_input = st.sidebar.text_input("輸入 Serp API Key (解鎖進階新聞搜尋功能)", type="password", key="serp_api_key")
 
 DEFAULT_PERIODS = ["1個月", "3個月", "6個月", "今年以來(YTD)", "1年", "2年", "5年", "全部"]
 st.sidebar.subheader("股價圖表設定")
@@ -249,7 +140,7 @@ if 'serpapi_error' not in st.session_state:
 
 if analyze_button and ticker_symbol_input:
     if st.session_state.current_ticker != ticker_symbol_input or not st.session_state.stock_data_loaded:
-        st.cache_data.clear() # 清除所有 @st.cache_data 函數的快取
+        st.cache_data.clear()
         st.session_state.stock_data_loaded = False
         st.session_state.serpapi_results = None
         st.session_state.serpapi_error = None
@@ -283,9 +174,8 @@ if analyze_button and ticker_symbol_input:
 
                     if serp_api_key_input and info.get('longName'):
                         company_name_for_search = info.get('longName', ticker_symbol_input)
-                        # 初始新聞搜尋，仍然可以用 news engine
-                        search_query_initial = f'"{company_name_for_search}" OR "{ticker_symbol_input}" 財經 OR 金融 OR 股票 OR 市場分析 新聞'
-                        st.session_state.serpapi_results, st.session_state.serpapi_error = get_serpapi_news(search_query_initial, serp_api_key_input, num_results=5)
+                        search_query = f'"{company_name_for_search}" OR "{ticker_symbol_input}" 財經 OR 金融 OR 股票 OR 市場分析 新聞'
+                        st.session_state.serpapi_results, st.session_state.serpapi_error = get_serpapi_news(search_query, serp_api_key_input, num_results=5)
                     elif not serp_api_key_input:
                         st.session_state.serpapi_error = "未提供 Serp API Key，跳過外部新聞搜尋。"
                 else:
@@ -295,7 +185,7 @@ if analyze_button and ticker_symbol_input:
             except Exception as e:
                 st.error(f"獲取股票數據時發生嚴重錯誤: {e}")
                 st.session_state.stock_data_loaded = False
-                st.session_state.current_ticker = ticker_symbol_input 
+                st.session_state.current_ticker = ticker_symbol_input # Keep current ticker to show error context
 
 if st.session_state.stock_data_loaded and \
     hasattr(st.session_state, 'info') and st.session_state.info and \
@@ -595,7 +485,7 @@ if st.session_state.stock_data_loaded and \
                     if yf_capex_col1 in cashflow.columns and not cashflow[yf_capex_col1].isnull().all(): cap_ex_val = cashflow[yf_capex_col1]
                     elif yf_capex_col2 in cashflow.columns and not cashflow[yf_capex_col2].isnull().all(): cap_ex_val = cashflow[yf_capex_col2]
                     
-                    if cap_ex_val is not None and pd.notna(op_c).all() and pd.notna(cap_ex_val).all(): # Ensure cap_ex_val is not None before calculation
+                    if cap_ex_val is not None and pd.notna(op_c) and pd.notna(cap_ex_val): # Ensure cap_ex_val is not None before calculation
                         cashflow_display[display_fcf_calc] = op_c + cap_ex_val # Note: Capex is usually negative in cashflow statements, so FCF = OpCash + Capex (if Capex is negative)
 
                 if yf_op_cash_col in cashflow.columns: cashflow_display[display_op_cash] = cashflow[yf_op_cash_col]
@@ -797,14 +687,11 @@ if st.session_state.stock_data_loaded and \
 
 
     with tab_ai_chat:
-        st.subheader(f"與 Gemini 針對 {company_name} 進行進階對話 (具備聯網搜尋能力)") # 修改標題
+        st.subheader(f"與 Gemini 針對 {company_name} 進行進階對話")
 
         if not google_api_key_input:
-            st.warning("請在左側欄輸入 Gemini API Key 以啟用 AI 分析與對話功能。")
-        elif not serp_api_key_input: # 新增提示
-            st.warning("請在左側欄輸入 Serp API Key 以啟用 AI 的聯網搜尋功能。")
-        
-        if google_api_key_input: # 只有在有Google API Key時才進行初始分析和聊天
+            st.warning("請在左側邊欄輸入 Gemini API Key 以啟用 AI 分析與對話功能。")
+        else:
             if not st.session_state.initial_ai_analysis_done:
                 with st.spinner("Gemini 正在生成初始分析，請稍候..."):
                     prompt_parts = [
@@ -874,7 +761,7 @@ if st.session_state.stock_data_loaded and \
                             ai_news_line_serp_prompt = f"{i_serp_prompt+1}. 標題: {title_for_ai_serp_prompt} (來源: {source_name_for_ai_serp_prompt})"
                             if date_str_for_ai_serp_prompt: ai_news_line_serp_prompt += f" (發布日期: {date_str_for_ai_serp_prompt})"
                             prompt_parts.append(ai_news_line_serp_prompt)
-                    elif serpapi_error and "未提供 SERP API 金鑰" not in serpapi_error and "跳過外部新聞搜尋" not in serpapi_error: 
+                    elif serpapi_error and "未提供 SERP API 金鑰" not in serpapi_error : 
                         prompt_parts.append(f"\n\n外部財經新聞搜尋提示: {serpapi_error}")
                     
                     prompt_instruction = (
@@ -883,49 +770,41 @@ if st.session_state.stock_data_loaded and \
                         "2. 分析應包括公司的主要優勢、潛在風險和挑戰，並結合所有提供的新聞資訊進行綜合評估。\n"
                         "3. 提供一個完整的總結性評價和未來展望。\n"
                         "4. 分析應客觀且基於數據，段落分明，易於理解。避免提供直接的投資建議（買入/賣出）。\n"
-                        "5. 你的回答將作為後續對話的初始上下文。\n"
-                        "6. 如果在後續對話中，你需要最新的資訊或不確定的事實來回答用戶，你可以使用 'perform_web_search' 工具來獲取。" # 新增提示
+                        "5. 你的回答將作為後續對話的初始上下文。"
                     )
                     full_initial_prompt = "\n".join(str(p_part) for p_part in prompt_parts) + prompt_instruction
                     
                     genai.configure(api_key=google_api_key_input)
-                    # 初始分析不需要聯網，所以用不帶 tools 的模型，或者明確不觸發
-                    model_for_initial = genai.GenerativeModel('gemini-2.0-flash') # 確保模型一致性
+                    model_for_initial = genai.GenerativeModel('gemini-2.0-flash-001')
                     initial_response = model_for_initial.generate_content(full_initial_prompt)
                     initial_analysis_text = initial_response.text if initial_response.parts else "AI 分析無法生成初始內容。"
                     
                     st.markdown(initial_analysis_text)
-                    st.session_state.initial_analysis_context = initial_analysis_text # 雖然有聊天歷史，但這個可以保留給特定用途
+                    st.session_state.initial_analysis_context = initial_analysis_text
                     st.session_state.chat_messages.append({"role": "assistant", "content": initial_analysis_text})
-                    # 初始分析不包含 function call，所以直接加入歷史
-                    st.session_state.gemini_chat_history.append({'role': 'user', 'parts': [{'text': full_initial_prompt}]}) # 模擬用戶發起
-                    st.session_state.gemini_chat_history.append({'role': 'model', 'parts': [{'text': initial_analysis_text}]})
+                    st.session_state.gemini_chat_history.append({'role': 'model', 'parts': [initial_analysis_text]})
                     st.session_state.initial_ai_analysis_done = True
             
             if st.session_state.initial_ai_analysis_done: 
-                for message_chat in st.session_state.chat_messages: # 只顯示UI的聊天記錄
+                for message_chat in st.session_state.chat_messages:
                     with st.chat_message(message_chat["role"]):
                         st.markdown(message_chat["content"])
 
-            if prompt_chat_input := st.chat_input(f"針對 {company_name}，您想問什麼？(AI可聯網搜尋)", key="ai_chat_input"):
+            if prompt_chat_input := st.chat_input("針對以上分析，您想問什麼？", key="ai_chat_input"):
                 if not st.session_state.initial_ai_analysis_done:
                     st.warning("請等待初始分析完成後再提問。")
                 elif not google_api_key_input: 
                     st.error("請先提供 Gemini API Key!")
-                # 移除了對 serp_api_key_input 的強制檢查，因為即使沒有它，LLM 也能回答非即時性問題
                 else:
                     st.session_state.chat_messages.append({"role": "user", "content": prompt_chat_input})
                     with st.chat_message("user"):
                         st.markdown(prompt_chat_input)
 
-                    with st.spinner("Gemini 正在思考中 (可能進行聯網搜尋)..."):
-                        # 傳遞 SERP API Key 和公司名稱給 get_ai_chat_response_from_gemini
+                    with st.spinner("Gemini 正在思考中..."):
                         ai_response_text_chat, updated_gemini_history_chat = get_ai_chat_response_from_gemini(
                             google_api_key_input,
-                            serp_api_key_input, # 傳遞 Serp API Key
                             prompt_chat_input, 
-                            st.session_state.gemini_chat_history,
-                            company_name # 傳遞公司名稱作為搜尋上下文
+                            st.session_state.gemini_chat_history
                         )
                         st.session_state.gemini_chat_history = updated_gemini_history_chat 
                         
@@ -944,7 +823,7 @@ else:
 請於左側欄位輸入：
 *   **股票代碼** (例如：2330.TW)
 *   **Gemini API Key** (Google LLM - 用於啟用 AI 驅動的分析與互動式對話功能)
-*   **Serp API Key** (用於整合外部即時新聞資訊，並賦予 AI 聯網搜尋能力)
+*   **Serp API Key** (用於整合外部即時新聞資訊)
 
 完成輸入後，請點擊「立即分析」，即可開始您的智能化投資決策之旅。
 
