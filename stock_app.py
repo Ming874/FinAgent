@@ -3,8 +3,8 @@ import yfinance as yf
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import google.generativeai as genai # 使用 google-genai SDK (通常以此方式導入)
-from google.generativeai.types import HarmCategory, HarmBlockThreshold # Safety settings - 這些通常仍在 types 下
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from serpapi import GoogleSearch
 from ta.volatility import BollingerBands
 from ta.trend import MACD, SMAIndicator, EMAIndicator
@@ -12,7 +12,7 @@ from ta.momentum import RSIIndicator
 from datetime import datetime, timedelta
 import pytz
 import os
-import traceback # 用於印出詳細錯誤
+import traceback
 
 # --- 介面配置 ---
 st.set_page_config(layout="wide", page_title="Fin AIgent")
@@ -36,10 +36,9 @@ def get_stock_data_enhanced(ticker_symbol):
 
         if hist_data_max.index.tz is None:
             try:
-                # Sanitize timezone name
                 tz_name_raw = info.get('exchangeTimezoneName', 'America/New_York')
                 if tz_name_raw:
-                    tz_name = tz_name_raw.split(' ')[0] # Take the first part if it's like "New_York EST"
+                    tz_name = tz_name_raw.split(' ')[0]
                 else:
                     tz_name = 'America/New_York'
 
@@ -72,10 +71,10 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
     try:
         params = {
             "q": query,
-            "engine": "google_news", # 使用新聞引擎
+            "engine": "google_news",
             "api_key": serp_api_key,
             "num": num_results,
-            "tbm": "nws", # 指定新聞搜尋
+            "tbm": "nws",
             "hl": "zh-tw",
             "gl": "tw"
         }
@@ -84,7 +83,7 @@ def get_serpapi_news(query, serp_api_key, num_results=5):
 
         if "news_results" in results:
             return results["news_results"], None
-        elif "organic_results" in results: # 有些情況下新聞結果可能在 organic_results
+        elif "organic_results" in results:
             return results["organic_results"], None
         else:
             return None, f"SERP API (新聞) 未返回預期的 'news_results' 或 'organic_results'。收到: {list(results.keys())}"
@@ -99,7 +98,7 @@ def get_serpapi_web_search(query, serp_api_key, num_results=3):
     try:
         params = {
             "q": query,
-            "engine": "google", # 通用搜尋引擎
+            "engine": "google",
             "api_key": serp_api_key,
             "num": num_results,
             "hl": "zh-tw",
@@ -201,13 +200,13 @@ def get_ai_chat_response_from_gemini(api_key, user_query, chat_history_for_api, 
                         tool_response_content = "網頁搜尋未找到相關結果。"
                         st.info(tool_response_content)
 
-                    # MODIFIED: Use genai.protos for FunctionResponse
+                    # Use genai.protos for FunctionResponse
                     api_function_response_obj = genai.protos.FunctionResponse(
                         name="perform_web_search",
                         response={"result": tool_response_content}
                     )
 
-                # MODIFIED: Use genai.protos.Part to wrap FunctionResponse
+                # Use genai.protos.Part to wrap FunctionResponse
                 response = current_chat_session.send_message(
                     [genai.protos.Part(function_response=api_function_response_obj)] # MODIFIED
                 )
@@ -1071,7 +1070,7 @@ elif analyze_button and not ticker_symbol_input:
 elif st.session_state.get('stock_data_loaded') is False and st.session_state.get('current_ticker'):
     st.error(f"加載 {st.session_state.current_ticker} 的數據失敗。請檢查股票代碼或網絡，然後重試。")
 else:
-    st.info("""👋 歡迎使用 Fin AIgent 股票投資決策整合平台！
+    st.markdown("""👋 歡迎使用 Fin AIgent 股票投資決策整合平台！
 
 請於左側欄位輸入：
 *   **股票代碼** (例如：2330.TW)
@@ -1079,5 +1078,6 @@ else:
 *   **Serp API Key** (用於整合外部即時新聞資訊，以及賦予 LLM 聯網搜尋能力)
 
 完成輸入後，請點擊「立即分析」，即可開始您的智能化投資決策之旅。
+如欲平台問題或想新增功能，請透過<a href='https://forms.gle/CqrngvjTa6bFfZd96' target='_blank'>此表單</a>進行問題回報。
 
-This platform is maintained by Tai-Ming Chen.""")
+This platform is maintained by Tai-Ming Chen.""", unsafe_allow_html=True)
